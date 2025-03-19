@@ -110,7 +110,7 @@ sudo systemctl start battery-controller.service
 ## Script Descriptions
 * modbus_api.py:
 
-  Runs a FastAPI server to read Modbus registers (0, 1, 2, 7, 8, 9, 14, 15, 34-44, 58, 60, 62, 66, 68, 77, 78, 125-128, 132-139, 140-141, 144, 145) and limited registers (0, 1, 44, 68), and write charge current to register 0xe205.
+  Runs a FastAPI server to read Modbus registers and write charge current to register 0xe205.
 
   - Endpoint: /registers, /limited_registers, /set_charge_current.
 
