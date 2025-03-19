@@ -1,6 +1,13 @@
-# Modbus Control
+# SRNE Hybrid Inverter Modbus monitor and charge controller
 
-This repository contains scripts to manage a Modbus-based battery system using a FastAPI server and a controller script.
+This repository contains scripts to manage a Modbus-based inverter and battery system using a FastAPI server and a controller script.
+
+Instruments(example):
+
+- PowMr SunSmart-10KP in split-phase mode
+- Raspberry Pi with Ubuntu
+- 7.92kW-peak Solar Panels
+- 2 x JK-BMS based battery box (XR-07) with 32 x 300Ah LFP batteries
 
 ## Setup Instructions
 
@@ -29,7 +36,6 @@ sudo chown -R your_username:your_username /opt/modbus_api
 ### 4. Configure systemd Services
 
 * Modbus API Service:
-
 ```bash
 sudo nano /etc/systemd/system/modbus-api.service
 ```
@@ -51,7 +57,6 @@ WantedBy=multi-user.target
 ```
 
 * DB Writer Service:
-
 ```bash
 sudo nano /etc/systemd/system/db-writer.service
 ```
@@ -73,7 +78,6 @@ WantedBy=multi-user.target
 ```
 
 * Battery Controller Service:
-
 ```bash
 sudo nano /etc/systemd/system/battery-controller.service
 ```
@@ -95,7 +99,6 @@ WantedBy=multi-user.target
 ```
 
 * Enable and Start Services
-
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable modbus-api.service
@@ -105,7 +108,6 @@ sudo systemctl start battery-controller.service
 ```
 
 ## Script Descriptions
-
 * modbus_api.py:
 
   Runs a FastAPI server to read Modbus registers (0, 1, 2, 7, 8, 9, 14, 15, 34-44, 58, 60, 62, 66, 68, 77, 78, 125-128, 132-139, 140-141, 144, 145) and limited registers (0, 1, 44, 68), and write charge current to register 0xe205.
@@ -114,11 +116,11 @@ sudo systemctl start battery-controller.service
 
 * db_writer.py:
 
-  - Writes Modbus registers to an InfluxDB database every minute.
+  Writes Modbus registers to an InfluxDB database every minute.
 
 * battery_controller.py:
 
-  - Adjusts battery charge current every 5 seconds and updates target_soc and daily_charge_current daily at 22:59.
+  Adjusts battery charge current every 5 seconds and updates target_soc and daily_charge_current daily at 22:59.
 
-  - Uses weather data to set SOC targets (Sunny: 80, Cloudy: 90, Bad: 101, Default: 90).
+  Uses weather data to set SOC targets (Sunny: 80, Cloudy: 90, Bad: 101, Default: 90).
 
