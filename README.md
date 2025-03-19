@@ -65,7 +65,7 @@ After=network.target modbus-api.service
 ExecStart=/opt/modbus_api/venv/bin/python3 /opt/modbus_api/db_writer.py
 WorkingDirectory=/opt/modbus_api
 Restart=always
-User=shobon
+User=your_username
 Environment="PYTHONPATH=/opt/modbus_api"
 
 [Install]
@@ -107,17 +107,17 @@ sudo systemctl start battery-controller.service
 ## Script Descriptions
 
 * modbus_api.py:
-Runs a FastAPI server to read Modbus registers (0, 1, 2, 7, 8, 9, 14, 15, 34-44, 58, 60, 62, 66, 68, 77, 78, 125-128, 132-139, 140-141, 144, 145) and limited registers (0, 1, 44, 68), and write charge current to register 0xe205.
+  Runs a FastAPI server to read Modbus registers (0, 1, 2, 7, 8, 9, 14, 15, 34-44, 58, 60, 62, 66, 68, 77, 78, 125-128, 132-139, 140-141, 144, 145) and limited registers (0, 1, 44, 68), and write charge current to register 0xe205.
 
-Endpoint: /registers, /limited_registers, /set_charge_current.
+  - Endpoint: /registers, /limited_registers, /set_charge_current.
 
 * db_writer.py:
 
-Writes Modbus registers to an InfluxDB database every minute.
+  - Writes Modbus registers to an InfluxDB database every minute.
 
 * battery_controller.py:
 
-Adjusts battery charge current every 5 seconds and updates target_soc and daily_charge_current daily at 22:59.
+  - Adjusts battery charge current every 5 seconds and updates target_soc and daily_charge_current daily at 22:59.
 
-Uses weather data to set SOC targets (Sunny: 80, Cloudy: 90, Bad: 101, Default: 90).
+  - Uses weather data to set SOC targets (Sunny: 80, Cloudy: 90, Bad: 101, Default: 90).
 
