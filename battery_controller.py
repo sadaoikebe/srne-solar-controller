@@ -38,10 +38,16 @@ def set_charge_current(current):
     """API経由で充電電流を書き込む"""
     debug_print(f"Setting charge current to {current}...")
     try:
-        response = requests.post(SET_CHARGE_CURRENT_URL, json={"current": current})
+        response = requests.post(SET_CHARGE_CURRENT_URL, json={"value": current})  # 'current' → 'value'
         response.raise_for_status()
-        debug_print(f"Set charge current: {response.json()['message']}")
-        return True
+        result = response.json()
+        if result.get('success'):
+            debug_print(f"Set charge current successfully: value={result['value']}")
+            return True
+        else:
+            print(f"Error setting charge current: {result.get('message')}")
+            debug_print(f"Set charge current failed: {result.get('message')}")
+            return False
     except requests.RequestException as e:
         print(f"Error setting charge current: {e}")
         debug_print(f"Set charge current failed with error: {e}")
@@ -94,7 +100,6 @@ def adjust_battery_charge(data, daily_charge_current, last_charge_current):
     target_charge_current = daily_charge_current
     debug_print(f"Initial target_charge_current: {target_charge_current}")
 
-    # SOCに基づくバッテリー保護制約
     if battery_soc < 60:
         target_charge_current = min(120, target_charge_current)
     elif 60 <= battery_soc < 70:
@@ -113,14 +118,12 @@ def adjust_battery_charge(data, daily_charge_current, last_charge_current):
         target_charge_current = min(10, target_charge_current)
     debug_print(f"After SOC protection: {target_charge_current}")
 
-    # 時間帯による制限
     if 7 <= current_hour <= 22:
         target_charge_current = min(5, target_charge_current)
     if 1 <= current_hour <= 6:
         target_charge_current = min(100, target_charge_current)
     debug_print(f"After hour check: {target_charge_current}")
 
-    # グリッド最大電力制約
     target_charge_current = min(grid_limit_current, target_charge_current)
     debug_print(f"Final target_charge_current: {target_charge_current}")
 
@@ -179,9 +182,13 @@ last_charge_current = 0
 # タイミング調整
 now = datetime.now()
 first_five_sec_start = now.replace(microsecond=0) + timedelta(seconds=(5 - (now.second % 5)) % 5)
-next_daily_process = now.replace(hour=22, minute=59, second=0, microsecond=0)
-if next_daily_process <= now:
-    next_daily_process += timedelta(days=1)
+# DEBUGモード時のみ初回daily_processを最初の1分境界で実行
+if DEBUG:
+    next_daily_process = first_five_sec_start + timedelta(seconds=5)
+else:
+    next_daily_process = now.replace(hour=22, minute=59, second=0, microsecond=0)
+    if next_daily_process <= now:
+        next_daily_process += timedelta(days=1)
 
 debug_print(f"Initial setup: first_five_sec_start={first_five_sec_start}, next_daily_process={next_daily_process}")
 print("Starting battery controller...")
@@ -201,13 +208,14 @@ while True:
         else:
             debug_print("No data fetched, skipping charge adjustment")
         
-        # 1日ごとの処理（22:59）
+        # 1日ごとの処理（DEBUG時は初回1分後、通常は22:59）
         now = datetime.now()
         debug_print(f"Checking daily process: now={now}, next_daily_process={next_daily_process}")
         if now >= next_daily_process and limited_data:
             debug_print("Executing daily process...")
             target_soc, daily_charge_current = daily_process(int(limited_data["0"]))
-            next_daily_process += timedelta(days=1)
+            # 次回のdaily_processを翌日22:59に設定
+            next_daily_process = now.replace(hour=22, minute=59, second=0, microsecond=0) + timedelta(days=1)
             debug_print(f"Next daily process scheduled for {next_daily_process}")
         else:
             debug_print("Daily process not due yet")
