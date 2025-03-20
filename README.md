@@ -52,6 +52,7 @@ sudo nano /etc/systemd/system/battery-controller.service
 
 * Daily Target Calculation:
 ```bash
+sudo nano /etc/systemd/system/daily-target.service
 sudo nano /etc/systemd/system/daily-target.timer
 ```
 
