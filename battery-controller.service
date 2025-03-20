@@ -1,0 +1,14 @@
+[Unit]
+Description=Battery Controller Service
+After=network.target modbus-api.service
+
+[Service]
+ExecStart=/opt/modbus_api/venv/bin/python3 /opt/modbus_api/battery_controller.py
+WorkingDirectory=/opt/modbus_api
+Restart=always
+User=your_username
+Environment="PYTHONPATH=/opt/modbus_api"
+
+[Install]
+WantedBy=multi-user.target
+

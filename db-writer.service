@@ -1,0 +1,14 @@
+[Unit]
+Description=DB Writer Script
+After=network.target modbus-api.service
+
+[Service]
+ExecStart=/opt/modbus_api/venv/bin/python3 /opt/modbus_api/db_writer.py
+WorkingDirectory=/opt/modbus_api
+Restart=always
+User=your_username
+Environment="PYTHONPATH=/opt/modbus_api"
+
+[Install]
+WantedBy=multi-user.target
+

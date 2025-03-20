@@ -1,0 +1,14 @@
+[Unit]
+Description=Modbus Register API Service
+After=network.target
+
+[Service]
+ExecStart=/opt/modbus_api/venv/bin/python3 /opt/modbus_api/modbus_api.py
+WorkingDirectory=/opt/modbus_api
+Restart=always
+User=your_username
+Environment="PYTHONPATH=/opt/modbus_api"
+
+[Install]
+WantedBy=multi-user.target
+

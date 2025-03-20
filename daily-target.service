@@ -1,0 +1,14 @@
+[Unit]
+Description=Daily Target Calculation Service
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/modbus_api/venv/bin/python3 /opt/modbus_api/daily_target.py
+WorkingDirectory=/opt/modbus_api
+User=your_username
+Environment="PYTHONPATH=/opt/modbus_api"
+
+[Install]
+WantedBy=multi-user.target
+

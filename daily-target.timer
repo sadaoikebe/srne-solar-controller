@@ -1,0 +1,9 @@
+[Unit]
+Description=Run daily target calculation at 22:59
+
+[Timer]
+OnCalendar=*-*-* 22:59:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
