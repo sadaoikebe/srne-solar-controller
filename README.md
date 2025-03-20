@@ -40,41 +40,9 @@ sudo chown -R your_username:your_username /opt/modbus_api
 sudo nano /etc/systemd/system/modbus-api.service
 ```
 
-```ini
-[Unit]
-Description=Modbus Register API Service
-After=network.target
-
-[Service]
-ExecStart=/opt/modbus_api/venv/bin/python3 /opt/modbus_api/modbus_api.py
-WorkingDirectory=/opt/modbus_api
-Restart=always
-User=your_username
-Environment="PYTHONPATH=/opt/modbus_api"
-
-[Install]
-WantedBy=multi-user.target
-```
-
 * DB Writer Service:
 ```bash
 sudo nano /etc/systemd/system/db-writer.service
-```
-
-```ini
-[Unit]
-Description=DB Writer Script
-After=network.target modbus-api.service
-
-[Service]
-ExecStart=/opt/modbus_api/venv/bin/python3 /opt/modbus_api/db_writer.py
-WorkingDirectory=/opt/modbus_api
-Restart=always
-User=your_username
-Environment="PYTHONPATH=/opt/modbus_api"
-
-[Install]
-WantedBy=multi-user.target
 ```
 
 * Battery Controller Service:
@@ -82,45 +50,33 @@ WantedBy=multi-user.target
 sudo nano /etc/systemd/system/battery-controller.service
 ```
 
-```ini
-[Unit]
-Description=Battery Controller Service
-After=network.target modbus-api.service
-
-[Service]
-ExecStart=/opt/modbus_api/venv/bin/python3 /opt/modbus_api/battery_controller.py
-WorkingDirectory=/opt/modbus_api
-Restart=always
-User=your_username
-Environment="PYTHONPATH=/opt/modbus_api"
-
-[Install]
-WantedBy=multi-user.target
+* Daily Target Calculation:
+```bash
+sudo nano /etc/systemd/system/daily-target.timer
 ```
 
 * Enable and Start Services
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable modbus-api.service
-sudo systemctl enable battery-controller.service
 sudo systemctl start modbus-api.service
+sudo systemctl enable db-writer.service
+sudo systemctl start db-writer.service
+sudo systemctl enable battery-controller.service
 sudo systemctl start battery-controller.service
+sudo systemctl enable daily-target.timer
+sudo systemctl start daily-target.timer
+sudo systemctl status daily-target.timer
 ```
 
 ## Script Descriptions
-* modbus_api.py:
 
-  Runs a FastAPI server to read Modbus registers and write charge current to register 0xe205.
+- **`modbus_api.py`**: Runs a FastAPI server to read Modbus registers, and write charge current to register 0xe205.
+  - Endpoint: `/registers`, `/limited_registers`, `/set_charge_current`.
 
-  - Endpoint: /registers, /limited_registers, /set_charge_current.
+- **`db_writer.py`**: Writes Modbus registers to an InfluxDB database every minute.
 
-* db_writer.py:
+- **`daily_target.py`**: Calculates `target_soc` and `daily_charge_current` daily at 22:59 using JMA weather data, writes to `targets.json`. Supports options like `--start-soc`, `--target-soc`, `--charging-hours`.
 
-  Writes Modbus registers to an InfluxDB database every minute.
-
-* battery_controller.py:
-
-  Adjusts battery charge current every 5 seconds and updates target_soc and daily_charge_current daily at 22:59.
-
-  Uses weather data to set SOC targets (Sunny: 80, Cloudy: 90, Bad: 101, Default: 90).
+- **`battery_controller.py`**: Adjusts battery charge current every 5 seconds based on `targets.json`. Stops charging when SOC reaches `target_soc`.
 
