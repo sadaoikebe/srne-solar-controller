@@ -66,10 +66,11 @@ def adjust_battery_charge(data, daily_charge_current, target_soc):
     else:
         target_charge_current = min(10, target_charge_current)
 
+    if target_soc - 1 == battery_soc:
+        target_charge_current = min(20, target_charge_current)
+
     if 7 <= current_hour <= 22:
         target_charge_current = min(5, target_charge_current)
-    if 1 <= current_hour <= 6:
-        target_charge_current = min(100, target_charge_current)
 
     target_charge_current = min(grid_limit_current, target_charge_current)
     return target_charge_current
