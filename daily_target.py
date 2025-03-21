@@ -27,14 +27,17 @@ def fetch_tomorrow_weather_code():
         print(f"Tomorrow's weather code: {weather_code}")
         return weather_code
     except requests.RequestException as e:
-        print(f"Weather API request failed: {e}, defaulting to weather code 300")
-        return 300  # デフォルト（曇り）
+        print(f"Weather API request failed: {e}, defaulting to weather code 200")
+        return 200
 
 def determine_target_soc_from_weather(weather_code):
     """天気コードからtarget_socを決定する"""
-    if 100 <= weather_code <= 199:
-        target_soc = 80  # 晴れ
-        print("Sunny weather, target_soc=80")
+    if weather_code == 100:
+        target_soc = 65  # 快晴
+        print("Clear weather, target_soc=65")
+    elif 101 <= weather_code <= 199:
+        target_soc = 75  # 晴れ
+        print("Sunny weather, target_soc=75")
     elif 200 <= weather_code <= 299:
         target_soc = 90  # 曇り
         print("Cloudy weather, target_soc=90")
