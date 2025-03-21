@@ -2,6 +2,7 @@ import requests
 import json
 import argparse
 from datetime import datetime, timedelta
+import math
 
 WEATHER_API_URL = "https://www.jma.go.jp/bosai/forecast/data/forecast/280000.json"
 LIMITED_REGISTERS_URL = "http://localhost:5004/limited_registers"
@@ -57,7 +58,9 @@ def calculate_required_current(battery_soc, target_soc, charging_hours):
     required_power_w = required_energy_wh / charging_hours
     battery_voltage = 53  # 予測用に53V固定
     required_current = required_power_w / battery_voltage
-    return round(required_current / 5) * 5
+    rounded_current = math.ceil(required_current / 5) * 5  # 切り上げて5の倍数に
+    print(f"Required current: {required_current:.2f} A, rounded up to: {rounded_current} A")
+    return rounded_current
 
 def estimate_soc_at_2259(current_soc):
     """22:59までの平均1kW消費で推定SOCを計算"""
