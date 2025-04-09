@@ -2,6 +2,18 @@ from fastapi import FastAPI, HTTPException, Request
 import pymodbus.client as modbusClient
 from typing import Dict, List
 import uvicorn
+from enum import IntEnum
+
+class OutputPriority(IntEnum):
+    SOL = 0
+    UTI = 1
+    SBU = 2
+
+class ChargingPriority(IntEnum):
+    CSO = 0
+    CUB = 1
+    SNU = 2
+    OSO = 3
 
 app = FastAPI(title="Modbus Register API", description="API to read/write Modbus registers")
 
@@ -98,6 +110,82 @@ async def set_charge_current(request: Request):
         return {
             'success': False,
             'message': f"Error: {str(e)}"
+        }
+    finally:
+        modbus_client.close()
+
+@app.post("/set_output_priority")
+async def set_output_priority(request: Request):
+    modbus_client = connect_modbus()
+    try:
+        request_data = await request.json()
+        value = request_data.get('value')
+        if value is None or value not in [e.value for e in OutputPriority]:
+            raise HTTPException(status_code=400, detail=f"Invalid value for Output Priority. Must be one of {[e.name for e in OutputPriority]}")
+        
+        response = modbus_client.write_register(0xe204, int(value))
+        if response.isError():
+            raise HTTPException(status_code=500, detail="Failed to set Output Priority")
+        return {
+            'success': True,
+            'value': OutputPriority(int(value)).name
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        modbus_client.close()
+
+@app.get("/get_output_priority")
+async def get_output_priority():
+    modbus_client = connect_modbus()
+    try:
+        response = modbus_client.read_holding_registers(address=0xe204, count=1)
+        if response.isError():
+            raise HTTPException(status_code=500, detail="Failed to read Output Priority")
+        value = response.registers[0]
+        if value not in [e.value for e in OutputPriority]:
+            raise HTTPException(status_code=500, detail=f"Invalid Output Priority value: {value}")
+        return {
+            'value': OutputPriority(value).name,
+            'raw_value': value
+        }
+    finally:
+        modbus_client.close()
+
+@app.post("/set_charging_priority")
+async def set_charging_priority(request: Request):
+    modbus_client = connect_modbus()
+    try:
+        request_data = await request.json()
+        value = request_data.get('value')
+        if value is None or value not in [e.value for e in ChargingPriority]:
+            raise HTTPException(status_code=400, detail=f"Invalid value for Charging Priority. Must be one of {[e.name for e in ChargingPriority]}")
+        
+        response = modbus_client.write_register(0xe20f, int(value))
+        if response.isError():
+            raise HTTPException(status_code=500, detail="Failed to set Charging Priority")
+        return {
+            'success': True,
+            'value': ChargingPriority(int(value)).name
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    finally:
+        modbus_client.close()
+
+@app.get("/get_charging_priority")
+async def get_charging_priority():
+    modbus_client = connect_modbus()
+    try:
+        response = modbus_client.read_holding_registers(address=0xe20f, count=1)
+        if response.isError():
+            raise HTTPException(status_code=500, detail="Failed to read Charging Priority")
+        value = response.registers[0]
+        if value not in [e.value for e in ChargingPriority]:
+            raise HTTPException(status_code=500, detail=f"Invalid Charging Priority value: {value}")
+        return {
+            'value': ChargingPriority(value).name,
+            'raw_value': value
         }
     finally:
         modbus_client.close()

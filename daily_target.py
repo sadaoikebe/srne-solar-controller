@@ -34,14 +34,14 @@ def fetch_tomorrow_weather_code():
 def determine_target_soc_from_weather(weather_code):
     """天気コードからtarget_socを決定する"""
     if weather_code == 100:
-        target_soc = 65  # 快晴
-        print("Clear weather, target_soc=65")
+        target_soc = 50  # 快晴
+        print("Clear weather, target_soc=55")
     elif 101 <= weather_code <= 199:
-        target_soc = 75  # 晴れ
-        print("Sunny weather, target_soc=75")
+        target_soc = 60  # 晴れ
+        print("Sunny weather, target_soc=65")
     elif 200 <= weather_code <= 299:
-        target_soc = 90  # 曇り
-        print("Cloudy weather, target_soc=90")
+        target_soc = 70  # 曇り
+        print("Cloudy weather, target_soc=70")
     else:
         target_soc = 101  # 悪天候
         print("Bad weather, target_soc=101")
@@ -54,11 +54,12 @@ def calculate_required_current(battery_soc, target_soc, charging_hours):
         print("SOC difference <= 0, no charging needed")
         return 0
     
-    required_energy_wh = soc_diff * 255  # SOC 1あたり255Wh
+    required_energy_wh = soc_diff * 270  # SOC 1あたり
     required_power_w = required_energy_wh / charging_hours
     battery_voltage = 53  # 予測用に53V固定
     required_current = required_power_w / battery_voltage
-    rounded_current = math.ceil(required_current / 5) * 5  # 切り上げて5の倍数に
+    # rounded_current = math.ceil(required_current / 5) * 5  # 切り上げて5の倍数に
+    rounded_current = math.ceil(required_current)
     print(f"Required current: {required_current:.2f} A, rounded up to: {rounded_current} A")
     return rounded_current
 
@@ -81,7 +82,7 @@ def main():
     parser.add_argument("--estimate-start-soc", action="store_true", help="Estimate SOC at 22:59 based on 1kW average consumption")
     parser.add_argument("--start-soc", type=int, help="Use this SOC value instead of fetching from registers")
     parser.add_argument("--target-soc", type=int, help="Use this target SOC instead of weather-based calculation")
-    parser.add_argument("--charging-hours", type=float, default=6, help="Specify charging hours (default: 6)")
+    parser.add_argument("--charging-hours", type=float, default=6.5, help="Specify charging hours (default: 6.5)")
     args = parser.parse_args()
 
     # battery_soc の取得
