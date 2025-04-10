@@ -5,6 +5,7 @@ import json
 from enum import IntEnum
 
 TIME_MARGIN_MINUTES = 1
+HYSTERESIS_SOC = 2
 
 LIMITED_REGISTERS_URL = "http://localhost:5004/limited_registers"
 SET_CHARGE_CURRENT_URL = "http://localhost:5004/set_charge_current"
@@ -109,7 +110,7 @@ def load_targets_from_file(current_daily_charge_current, current_target_soc):
         print(f"Failed to load targets.json: {e}, using previous target_soc={current_target_soc}, daily_charge_current={current_daily_charge_current}")
         return current_daily_charge_current, current_target_soc
 
-def determine_output_priority(current_hour, current_minute, battery_soc, target_soc):
+def determine_output_priority(current_hour, current_minute, battery_soc, target_soc, last_output_priority):
     # デフォルトは SBU
     desired_priority = OutputPriority.SBU
 
@@ -128,11 +129,21 @@ def determine_output_priority(current_hour, current_minute, battery_soc, target_
     )
 
     if is_cheap_time:
-        # SOC ベースで切り替え
-        if battery_soc > target_soc:
-            desired_priority = OutputPriority.SBU
+        # ヒステリシスを考慮した切り替え
+        if last_output_priority == OutputPriority.UTI:
+            # 現在 UTI の場合、SOC が target_soc + hysteresis より大きい場合に SBU に
+            if battery_soc > target_soc + HYSTERESIS_SOC:
+                desired_priority = OutputPriority.SBU
+                print(f"Switching to SBU: battery_soc ({battery_soc}) > target_soc ({target_soc}) + hysteresis ({HYSTERESIS_SOC})")
+            else:
+                desired_priority = OutputPriority.UTI
         else:
-            desired_priority = OutputPriority.UTI
+            # 現在 SBU の場合、SOC が target_soc 以下で UTI に
+            if battery_soc <= target_soc:
+                desired_priority = OutputPriority.UTI
+                print(f"Switching to UTI: battery_soc ({battery_soc}) <= target_soc ({target_soc})")
+            else:
+                desired_priority = OutputPriority.SBU
     elif is_sbu_fixed_time:
         desired_priority = OutputPriority.SBU
 
@@ -143,36 +154,33 @@ def main():
     daily_charge_current = 0
     target_soc = 90
     last_output_priority = None
-    last_battery_soc = 50  # 前回の battery_soc を保持
+    last_battery_soc = 50
 
     print("Starting charge controller...")
     while True:
-        # ターゲット値の読み込み
         daily_charge_current, target_soc = load_targets_from_file(daily_charge_current, target_soc)
 
-        # レジスタデータの取得
         limited_data = fetch_registers()
         if limited_data:
             battery_soc = int(limited_data["0"])
-            last_battery_soc = battery_soc  # 前回値を更新
+            last_battery_soc = battery_soc
             load_power = int(limited_data["44"]) + int(limited_data["68"])
             battery_voltage = int(limited_data["1"]) / 10.0
         else:
-            battery_soc = last_battery_soc  # 前回値を使用
+            battery_soc = last_battery_soc
             load_power = 0
-            battery_voltage = 53  # デフォルト値
+            battery_voltage = 53
 
-        # Output Priority の決定
         current_hour = time.localtime().tm_hour
         current_minute = time.localtime().tm_min
-        desired_priority = determine_output_priority(current_hour, current_minute, battery_soc, target_soc)
+        desired_priority = determine_output_priority(
+            current_hour, current_minute, battery_soc, target_soc, last_output_priority
+        )
 
-        # Output Priority が変更された場合のみ設定
         if last_output_priority != desired_priority:
             set_output_priority(desired_priority)
             last_output_priority = desired_priority
 
-        # 充電電流の調整
         if limited_data:
             target_charge_current = adjust_battery_charge(
                 battery_soc, load_power, battery_voltage, daily_charge_current, target_soc
