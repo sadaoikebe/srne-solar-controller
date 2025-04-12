@@ -43,7 +43,7 @@ def determine_target_soc_from_weather(weather_code):
         target_soc = 65  # 曇り
         print("Cloudy weather, target_soc=65")
     elif weather_code in {300, 301, 311, 313}:
-        target_soc = 85  # 雨
+        target_soc = 80  # 雨
         print("Rainy weather, target_soc=85")
     else:
         target_soc = 101  # 悪天候

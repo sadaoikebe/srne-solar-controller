@@ -1,8 +1,12 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request, Depends, Form, HTTPException
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import pymodbus.client as modbusClient
 from typing import Dict, List
 import uvicorn
 from enum import IntEnum
+import json
 
 class OutputPriority(IntEnum):
     SOL = 0
@@ -15,7 +19,12 @@ class ChargingPriority(IntEnum):
     SNU = 2
     OSO = 3
 
+VALID_USERNAME = "shobon"
+VALID_PASSWORD = "set your password"
+
 app = FastAPI(title="Modbus Register API", description="API to read/write Modbus registers")
+templates = Jinja2Templates(directory="/opt/modbus_api/templates")
+security = HTTPBasic()
 
 # Modbusクライアントの初期化
 modbus = modbusClient.ModbusSerialClient(port='/dev/ttyUSB0', baudrate=9600, timeout=1)
@@ -189,6 +198,55 @@ async def get_charging_priority():
         }
     finally:
         modbus_client.close()
+
+def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):
+    if credentials.username != VALID_USERNAME or credentials.password != VALID_PASSWORD:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return credentials
+
+@app.get("/set_targets_form", response_class=HTMLResponse)
+async def set_targets_form(request: Request, credentials: HTTPBasicCredentials = Depends(verify_credentials)):
+    # 現在の targets.json の値を読み込み
+    try:
+        with open("/opt/modbus_api/targets.json", "r") as f:
+            targets = json.load(f)
+            target_soc = targets.get("target_soc", 90)  # デフォルト値
+            daily_charge_current = targets.get("daily_charge_current", 0)  # デフォルト値
+    except Exception as e:
+        print(f"Error reading targets.json: {e}")
+        target_soc = 90
+        daily_charge_current = 0
+
+    return templates.TemplateResponse("set_targets.html", {
+        "request": request,
+        "target_soc": target_soc,
+        "daily_charge_current": daily_charge_current
+    })
+
+@app.post("/set_targets", response_class=HTMLResponse)
+async def set_targets(
+    request: Request,
+    target_soc: int = Form(...),
+    daily_charge_current: int = Form(...),
+    credentials: HTTPBasicCredentials = Depends(verify_credentials)
+):
+    targets = {"target_soc": target_soc, "daily_charge_current": daily_charge_current}
+    try:
+        with open("/opt/modbus_api/targets.json", "w") as f:
+            json.dump(targets, f)
+        return templates.TemplateResponse("set_targets.html", {
+            "request": request,
+            "message": f"Targets updated: target_soc={target_soc}, daily_charge_current={daily_charge_current}",
+            "target_soc": target_soc,
+            "daily_charge_current": daily_charge_current
+        })
+    except Exception as e:
+        return templates.TemplateResponse("set_targets.html", {
+            "request": request,
+            "message": f"Error: {str(e)}",
+            "target_soc": target_soc,
+            "daily_charge_current": daily_charge_current
+        })
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=5004, log_level="info")

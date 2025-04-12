@@ -55,17 +55,15 @@ def set_output_priority(priority):
         return False
 
 def calculate_grid_limit_current(load_power, battery_voltage):
-    GRID_MAX_POWER = 9200
+    GRID_MAX_POWER = 9000
     grid_max_draw = GRID_MAX_POWER - load_power
     if 30 < battery_voltage < 70:
         return math.floor((grid_max_draw / battery_voltage) / 5) * 5
     return 0
 
 def adjust_battery_charge(battery_soc, load_power, battery_voltage, daily_charge_current, target_soc):
-    if battery_soc > target_soc or battery_soc >= 100:
+    if battery_soc >= target_soc or battery_soc >= 100:
         return 0
-    if battery_soc == target_soc:
-        return 1
 
     grid_limit_current = calculate_grid_limit_current(load_power, battery_voltage)
     target_charge_current = daily_charge_current
