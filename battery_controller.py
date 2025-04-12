@@ -62,7 +62,7 @@ def calculate_grid_limit_current(load_power, battery_voltage):
     return 0
 
 def adjust_battery_charge(battery_soc, load_power, battery_voltage, daily_charge_current, target_soc):
-    if battery_soc > target_soc OR battery_soc >= 100:
+    if battery_soc > target_soc or battery_soc >= 100:
         return 0
     if battery_soc == target_soc:
         return 1
