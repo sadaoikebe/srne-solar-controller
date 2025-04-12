@@ -62,14 +62,14 @@ def calculate_grid_limit_current(load_power, battery_voltage):
     return 0
 
 def adjust_battery_charge(battery_soc, load_power, battery_voltage, daily_charge_current, target_soc):
-    # SOC が target_soc 以上の場合、充電を停止
-    if battery_soc >= target_soc:
+    if battery_soc > target_soc OR battery_soc >= 100:
         return 0
+    if battery_soc == target_soc:
+        return 1
 
     grid_limit_current = calculate_grid_limit_current(load_power, battery_voltage)
     target_charge_current = daily_charge_current
 
-    # SOC ごとの充電電流制限をテーブル形式で定義
     soc_charge_limits = [
         (60, 120),  # SOC < 60: 120A
         (70, 105),  # 60 <= SOC < 70: 105A
@@ -80,7 +80,6 @@ def adjust_battery_charge(battery_soc, load_power, battery_voltage, daily_charge
         (100, 25),  # 99 <= SOC < 100: 25A
     ]
 
-    # SOC に応じた充電電流制限を適用
     for soc_threshold, limit in soc_charge_limits:
         if battery_soc < soc_threshold:
             target_charge_current = min(limit, target_charge_current)
@@ -104,7 +103,6 @@ def load_targets_from_file(current_daily_charge_current, current_target_soc):
             targets = json.load(f)
             daily_charge_current = targets.get("daily_charge_current", current_daily_charge_current)
             target_soc = targets.get("target_soc", current_target_soc)
-            print(f"Loaded targets: target_soc={target_soc}, daily_charge_current={daily_charge_current}")
             return daily_charge_current, target_soc
     except Exception as e:
         print(f"Failed to load targets.json: {e}, using previous target_soc={current_target_soc}, daily_charge_current={current_daily_charge_current}")
@@ -129,16 +127,13 @@ def determine_output_priority(current_hour, current_minute, battery_soc, target_
     )
 
     if is_cheap_time:
-        # ヒステリシスを考慮した切り替え
         if last_output_priority == OutputPriority.UTI:
-            # 現在 UTI の場合、SOC が target_soc + hysteresis より大きい場合に SBU に
             if battery_soc > target_soc + HYSTERESIS_SOC:
                 desired_priority = OutputPriority.SBU
                 print(f"Switching to SBU: battery_soc ({battery_soc}) > target_soc ({target_soc}) + hysteresis ({HYSTERESIS_SOC})")
             else:
                 desired_priority = OutputPriority.UTI
         else:
-            # 現在 SBU の場合、SOC が target_soc 以下で UTI に
             if battery_soc <= target_soc:
                 desired_priority = OutputPriority.UTI
                 print(f"Switching to UTI: battery_soc ({battery_soc}) <= target_soc ({target_soc})")

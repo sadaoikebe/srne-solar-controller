@@ -34,14 +34,17 @@ def fetch_tomorrow_weather_code():
 def determine_target_soc_from_weather(weather_code):
     """天気コードからtarget_socを決定する"""
     if weather_code == 100:
-        target_soc = 50  # 快晴
-        print("Clear weather, target_soc=55")
+        target_soc = 40  # 快晴
+        print("Clear weather, target_soc=40")
     elif 101 <= weather_code <= 199:
-        target_soc = 60  # 晴れ
-        print("Sunny weather, target_soc=65")
+        target_soc = 50  # 晴れ
+        print("Sunny weather, target_soc=50")
     elif 200 <= weather_code <= 299:
-        target_soc = 70  # 曇り
-        print("Cloudy weather, target_soc=70")
+        target_soc = 65  # 曇り
+        print("Cloudy weather, target_soc=65")
+    elif weather_code in {300, 301, 311, 313}:
+        target_soc = 85  # 雨
+        print("Rainy weather, target_soc=85")
     else:
         target_soc = 101  # 悪天候
         print("Bad weather, target_soc=101")
@@ -60,6 +63,7 @@ def calculate_required_current(battery_soc, target_soc, charging_hours):
     required_current = required_power_w / battery_voltage
     # rounded_current = math.ceil(required_current / 5) * 5  # 切り上げて5の倍数に
     rounded_current = math.ceil(required_current)
+    rounded_current = max(rounded_current, 10)
     print(f"Required current: {required_current:.2f} A, rounded up to: {rounded_current} A")
     return rounded_current
 
