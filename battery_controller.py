@@ -61,7 +61,41 @@ def calculate_grid_limit_current(load_power, battery_voltage):
         return math.floor((grid_max_draw / battery_voltage) / 5) * 5
     return 0
 
+def get_time_period():
+    """
+    時間帯を判定する。
+    Returns:
+        "sbu_fixed": 6:59 〜 23:01 の SBU 固定時間帯
+        "cheap": 23:01 〜 6:59 の安い時間帯
+    """
+    current_hour = time.localtime().tm_hour
+    current_minute = time.localtime().tm_min
+
+    # 6:59 〜 23:01 の SBU 固定時間帯
+    if (
+        (current_hour == 6 and current_minute >= (60 - TIME_MARGIN_MINUTES)) or
+        (6 < current_hour < 23) or
+        (current_hour == 23 and current_minute < TIME_MARGIN_MINUTES)
+    ):
+        return "sbu_fixed"
+
+    # 23:01 〜 6:59 の安い時間帯
+    if (
+        (current_hour == 23 and current_minute >= TIME_MARGIN_MINUTES) or
+        (current_hour < 6) or
+        (current_hour == 6 and current_minute < (60 - TIME_MARGIN_MINUTES))
+    ):
+        return "cheap"
+
+    return "unknown"  # 念のためのデフォルト
+
 def adjust_battery_charge(battery_soc, load_power, battery_voltage, daily_charge_current, target_soc):
+    # SBU 固定時間帯では充電しない
+    time_period = get_time_period()
+    if time_period == "sbu_fixed":
+        return 0
+
+    # 以下は Cheap 時間帯（23:01 〜 6:59）でのみ適用
     if battery_soc >= target_soc or battery_soc >= 100:
         return 0
 
@@ -78,19 +112,13 @@ def adjust_battery_charge(battery_soc, load_power, battery_voltage, daily_charge
         (100, 25),  # 99 <= SOC < 100: 25A
     ]
 
+    # SOC に応じた充電電流制限を適用
     for soc_threshold, limit in soc_charge_limits:
         if battery_soc < soc_threshold:
             target_charge_current = min(limit, target_charge_current)
             break
     else:
-        target_charge_current = min(10, target_charge_current)  # SOC >= 100: 10A
-
-    # 時間帯ごとの追加制限
-    current_hour = time.localtime().tm_hour
-    if 7 <= current_hour <= 22:
-        target_charge_current = min(5, target_charge_current)
-    if 1 <= current_hour <= 6:
-        target_charge_current = min(100, target_charge_current)
+        target_charge_current = min(0, target_charge_current)
 
     target_charge_current = min(grid_limit_current, target_charge_current)
     return target_charge_current
@@ -106,38 +134,29 @@ def load_targets_from_file(current_daily_charge_current, current_target_soc):
         print(f"Failed to load targets.json: {e}, using previous target_soc={current_target_soc}, daily_charge_current={current_daily_charge_current}")
         return current_daily_charge_current, current_target_soc
 
-def determine_output_priority(current_hour, current_minute, battery_soc, target_soc, last_output_priority):
+def determine_output_priority(battery_soc, target_soc, last_output_priority):
     # デフォルトは SBU
     desired_priority = OutputPriority.SBU
 
-    # 23:01 〜 6:59 の時間帯での処理
-    is_cheap_time = (
-        (current_hour == 23 and current_minute >= TIME_MARGIN_MINUTES) or
-        (current_hour < 6) or
-        (current_hour == 6 and current_minute < (60 - TIME_MARGIN_MINUTES))
-    )
+    time_period = get_time_period()
 
-    # 6:59 〜 23:01 の時間帯では常に SBU
-    is_sbu_fixed_time = (
-        (current_hour == 6 and current_minute >= (60 - TIME_MARGIN_MINUTES)) or
-        (6 < current_hour < 23) or
-        (current_hour == 23 and current_minute < TIME_MARGIN_MINUTES)
-    )
-
-    if is_cheap_time:
+    if time_period == "cheap":
+        # ヒステリシスを考慮した切り替え
         if last_output_priority == OutputPriority.UTI:
+            # 現在 UTI の場合、SOC が target_soc + hysteresis より大きい場合に SBU に
             if battery_soc > target_soc + HYSTERESIS_SOC:
                 desired_priority = OutputPriority.SBU
                 print(f"Switching to SBU: battery_soc ({battery_soc}) > target_soc ({target_soc}) + hysteresis ({HYSTERESIS_SOC})")
             else:
                 desired_priority = OutputPriority.UTI
         else:
+            # 現在 SBU の場合、SOC が target_soc 以下で UTI に
             if battery_soc <= target_soc:
                 desired_priority = OutputPriority.UTI
                 print(f"Switching to UTI: battery_soc ({battery_soc}) <= target_soc ({target_soc})")
             else:
                 desired_priority = OutputPriority.SBU
-    elif is_sbu_fixed_time:
+    elif time_period == "sbu_fixed":
         desired_priority = OutputPriority.SBU
 
     return desired_priority
@@ -164,11 +183,7 @@ def main():
             load_power = 0
             battery_voltage = 53
 
-        current_hour = time.localtime().tm_hour
-        current_minute = time.localtime().tm_min
-        desired_priority = determine_output_priority(
-            current_hour, current_minute, battery_soc, target_soc, last_output_priority
-        )
+        desired_priority = determine_output_priority(battery_soc, target_soc, last_output_priority)
 
         if last_output_priority != desired_priority:
             set_output_priority(desired_priority)
