@@ -19,8 +19,10 @@ class ChargingPriority(IntEnum):
     SNU = 2
     OSO = 3
 
-VALID_USERNAME = "shobon"
-VALID_PASSWORD = "set your password"
+with open("config.json") as f:
+    config = json.load(f)
+VALID_USERNAME = config["valid_username"]
+VALID_PASSWORD = config["valid_password"]
 
 app = FastAPI(title="Modbus Register API", description="API to read/write Modbus registers")
 templates = Jinja2Templates(directory="/opt/modbus_api/templates")
