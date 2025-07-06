@@ -7,6 +7,7 @@ from typing import Dict, List
 import uvicorn
 from enum import IntEnum
 import json
+import serial.tools.list_ports
 
 class OutputPriority(IntEnum):
     SOL = 0
@@ -28,8 +29,17 @@ app = FastAPI(title="Modbus Register API", description="API to read/write Modbus
 templates = Jinja2Templates(directory="/opt/modbus_api/templates")
 security = HTTPBasic()
 
+def get_modbus_client(vid: int, pid: int) -> modbusClient.ModbusSerialClient | None:
+    port = next((p.device for p in serial.tools.list_ports.comports() if p.vid == vid and p.pid == pid), None)
+    if not port:
+        print(f"No device found with VID={vid}, PID={pid}")
+        return None
+    print(f"Connecting to {port}")
+    return modbusClient.ModbusSerialClient(port=port, baudrate=9600, timeout=1)
+
 # Modbusクライアントの初期化
-modbus = modbusClient.ModbusSerialClient(port='/dev/ttyUSB0', baudrate=9600, timeout=1)
+modbus = get_modbus_client(vid=6790, pid=29987)
+#modbus = modbusClient.ModbusSerialClient(port='/dev/ttyUSB0', baudrate=9600, timeout=1)
 
 def connect_modbus():
     """Modbusに接続"""
@@ -71,15 +81,15 @@ async def get_all_registers():
 
 @app.get("/limited_registers", response_model=Dict[str, int])
 async def get_limited_registers():
-    """5秒ごと用の限定レジスタ（0, 1, 44, 68）を読み込む"""
+    """5秒ごと用の限定レジスタ（0, 1, 2, 44, 68）を読み込む"""
     modbus_client = connect_modbus()
     try:
         data = [0] * 69
-        response = modbus_client.read_holding_registers(address=0x100, count=2)
+        response = modbus_client.read_holding_registers(address=0x100, count=3)
         if not response.isError():
-            data[0:2] = response.registers[0:2]
+            data[0:3] = response.registers[0:3]
         else:
-            raise HTTPException(status_code=500, detail="Error reading registers 0-1")
+            raise HTTPException(status_code=500, detail="Error reading registers 0-2")
         response = modbus_client.read_holding_registers(address=0x200 + 28, count=1)
         if not response.isError():
             data[44] = response.registers[0]
@@ -90,7 +100,7 @@ async def get_limited_registers():
             data[68] = response.registers[0]
         else:
             raise HTTPException(status_code=500, detail="Error reading register 68")
-        limited_indices = [0, 1, 44, 68]
+        limited_indices = [0, 1, 2, 44, 68]
         return {str(i): data[i] for i in limited_indices}
     finally:
         modbus_client.close()
@@ -251,5 +261,5 @@ async def set_targets(
         })
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=5004, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=5004, log_level="error")
 

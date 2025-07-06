@@ -31,23 +31,30 @@ def fetch_tomorrow_weather_code():
         print(f"Weather API request failed: {e}, defaulting to weather code 200")
         return 200
 
+# TARGET_SOC_TABLE_SPRING = [
+#     (lambda wc: wc == 100, 50),  # 快晴
+#     (lambda wc: 101 <= wc < 200, 55),  # 晴れ
+#     (lambda wc: wc in {200, 201, 210, 211}, 60),  # 曇時々晴
+#     (lambda wc: 200 <= wc < 300, 70),  # 曇り
+#     (lambda wc: wc in {300, 301, 311, 313}, 90),  # 雨
+# ]
+
+TARGET_SOC_TABLE = [
+    (lambda wc: wc == 100, 55),  # 快晴
+    (lambda wc: 101 <= wc < 200, 60),  # 晴れ
+    (lambda wc: wc in {200, 201, 210, 211}, 65),  # 曇時々晴
+    (lambda wc: 200 <= wc < 300, 70),  # 曇り
+    (lambda wc: wc in {300, 301, 311, 313}, 90),  # 雨
+]
+
 def determine_target_soc_from_weather(weather_code):
-    """天気コードからtarget_socを決定する"""
-    if weather_code == 100:
-        target_soc = 40  # 快晴
-        print("Clear weather, target_soc=40")
-    elif 101 <= weather_code <= 199:
-        target_soc = 50  # 晴れ
-        print("Sunny weather, target_soc=50")
-    elif 200 <= weather_code <= 299:
-        target_soc = 65  # 曇り
-        print("Cloudy weather, target_soc=65")
-    elif weather_code in {300, 301, 311, 313}:
-        target_soc = 80  # 雨
-        print("Rainy weather, target_soc=85")
-    else:
-        target_soc = 101  # 悪天候
-        print("Bad weather, target_soc=101")
+    target_soc = 101 # 悪天候
+    for condition, soc in TARGET_SOC_TABLE:
+        if condition(weather_code):
+            target_soc = soc
+            break
+
+    print(f"Weather code={weather_code}, Target SOC={target_soc}")
     return target_soc
 
 def calculate_required_current(battery_soc, target_soc, charging_hours):
@@ -81,13 +88,45 @@ def estimate_soc_at_2259(current_soc):
     print(f"Estimated SOC at 22:59: {estimated_soc:.2f} (current SOC: {current_soc}, hours until 22:59: {hours_until_2259:.2f})")
     return estimated_soc
 
-def main():
+
+def calculate_charging_hours(until_time_str=None):
+    """
+    指定された時間（またはデフォルトで翌朝 5:30）までの充電時間を計算する。
+    Args:
+        until_time_str: "HH:MM" 形式の時間（例："05:30"）。未指定なら翌朝 5:30。
+    Returns:
+        充電時間 (時間、float)
+    """
+    now = datetime.now()
+    if until_time_str:
+        try:
+            hour, minute = map(int, until_time_str.split(":"))
+            until_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if until_time <= now:
+                until_time += timedelta(days=1)
+        except ValueError:
+            raise ValueError("Invalid time format. Use HH:MM (e.g., 05:30).")
+    else:
+        until_time = (now + timedelta(days=1)).replace(hour=5, minute=30, second=0, microsecond=0)
+        if now.hour < 5 or (now.hour == 5 and now.minute < 30):
+            until_time = now.replace(hour=5, minute=30, second=0, microsecond=0)
+
+    time_diff = (until_time - now).total_seconds() / 3600
+    return max(time_diff, 0)
+
+def parse_args():
     parser = argparse.ArgumentParser(description="Daily Target Calculation Script")
     parser.add_argument("--estimate-start-soc", action="store_true", help="Estimate SOC at 22:59 based on 1kW average consumption")
     parser.add_argument("--start-soc", type=int, help="Use this SOC value instead of fetching from registers")
     parser.add_argument("--target-soc", type=int, help="Use this target SOC instead of weather-based calculation")
-    parser.add_argument("--charging-hours", type=float, default=6.5, help="Specify charging hours (default: 6.5)")
-    args = parser.parse_args()
+    parser.add_argument("--charging-hours", type=float, help="Charging hours to use instead of calculating until a specific time")
+    parser.add_argument("--weather-code", type=int, help="Weather code to use instead of fetching from JMA")
+    parser.add_argument("--dry-run", action="store_true", help="Run in dry-run mode without writing to targets.json")
+    parser.add_argument("--until-time", help="Time to charge until in HH:MM format (e.g., 05:30). Default is 05:30 next morning.")
+    return parser.parse_args()
+
+def main():
+    args = parse_args()
 
     # battery_soc の取得
     if args.start_soc is not None:
@@ -110,20 +149,33 @@ def main():
         target_soc = args.target_soc
         print(f"Using specified target SOC: {target_soc}")
     else:
-        weather_code = fetch_tomorrow_weather_code()
+        weather_code = args.weather_code
+        if weather_code is None:
+            weather_code = fetch_tomorrow_weather_code()
         target_soc = determine_target_soc_from_weather(weather_code)
 
+    charging_hours = args.charging_hours
+    if charging_hours is not None and args.until_time is not None:
+        print("Error: Cannot specify both --charging-hours and --until-time.")
+        return
+
+    # 充電時間の決定
+    if charging_hours is None:
+        charging_hours = calculate_charging_hours(args.until_time)
+        print(f"Calculated charging hours: {charging_hours:.2f} hours")
+
     # daily_charge_current の計算
-    daily_charge_current = calculate_required_current(battery_soc, target_soc, args.charging_hours)
-    print(f"Calculated daily_charge_current: {daily_charge_current} (charging hours: {args.charging_hours})")
+    daily_charge_current = calculate_required_current(battery_soc, target_soc, charging_hours)
+    print(f"Calculated daily_charge_current: {daily_charge_current} (charging hours: {charging_hours})")
 
     # targets.json に書き込み
-    try:
-        with open("/opt/modbus_api/targets.json", "w") as f:
-            json.dump({"target_soc": target_soc, "daily_charge_current": daily_charge_current}, f)
-        print(f"Wrote targets to /opt/modbus_api/targets.json: target_soc={target_soc}, daily_charge_current={daily_charge_current}")
-    except Exception as e:
-        print(f"Failed to write targets.json: {e}")
+    if not args.dry_run: 
+        try:
+            with open("/opt/modbus_api/targets.json", "w") as f:
+                json.dump({"target_soc": target_soc, "daily_charge_current": daily_charge_current}, f)
+            print(f"Wrote targets to /opt/modbus_api/targets.json: target_soc={target_soc}, daily_charge_current={daily_charge_current}")
+        except Exception as e:
+            print(f"Failed to write targets.json: {e}")
 
 if __name__ == "__main__":
     print(f"Starting daily target calculation at {datetime.now()}")
