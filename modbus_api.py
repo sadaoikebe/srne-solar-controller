@@ -40,12 +40,18 @@ def get_modbus_client(vid: int, pid: int) -> modbusClient.ModbusSerialClient | N
 # Modbusクライアントの初期化
 modbus = get_modbus_client(vid=6790, pid=29987)
 #modbus = modbusClient.ModbusSerialClient(port='/dev/ttyUSB0', baudrate=9600, timeout=1)
+modbus2 = get_modbus_client(vid=1250, pid=5137)
 
 def connect_modbus():
     """Modbusに接続"""
     if not modbus.connect():
         raise HTTPException(status_code=500, detail="Failed to connect to Modbus device")
     return modbus
+
+def connect_modbus2():
+    if not modbus2.connect():
+        raise HTTPException(status_code=500, detail="Failed to connect to Modbus2 device")
+    return modbus2
 
 def read_modbus_registers(modbus_client, addresses_and_counts: List[tuple]) -> List[int]:
     """指定されたアドレスとカウントでレジスタを読み込む"""
@@ -58,10 +64,22 @@ def read_modbus_registers(modbus_client, addresses_and_counts: List[tuple]) -> L
             raise HTTPException(status_code=500, detail=f"Error reading registers at address {hex(address)}")
     return data
 
+def read_modbus_input_registers(modbus_client, addresses_and_counts: List[tuple]) -> List[int]:
+    """指定されたアドレスとカウントでレジスタを読み込む"""
+    data = []
+    for address, count in addresses_and_counts:
+        response = modbus_client.read_input_registers(address=address, count=count)
+        if not response.isError():
+            data.extend(response.registers)
+        else:
+            raise HTTPException(status_code=500, detail=f"Error reading registers at address {hex(address)}")
+    return data
+
 @app.get("/registers", response_model=Dict[str, int])
 async def get_all_registers():
     """必要な全レジスタを読み込む"""
     modbus_client = connect_modbus()
+    modbus_client2 = connect_modbus2()
     try:
         addresses_and_counts = [(0x100, 16), (0x200, 32), (0x220, 32), (0xf000, 32), (0xf020, 32), (0x110, 2)]
         all_data = read_modbus_registers(modbus_client, addresses_and_counts)
@@ -75,9 +93,31 @@ async def get_all_registers():
             144, 145
         ]
         filtered_data = {str(i): all_data[i] for i in required_indices}
+
+        addresses_and_counts2 = [(0, 120), (120, 120), (720, 120)]
+        all_data2 = read_modbus_input_registers(modbus_client2, addresses_and_counts2)
+
+        required_indices2 = [
+            *range(0, 160),
+            *range(176, 216),
+            *range(752, 784)
+        ]
+
+        for i in required_indices2:
+            if 0 <= i < 120:
+                value = all_data2[i]
+            elif 120 <= i < 240:
+                value = all_data2[i]
+            elif 720 <= i < 840:
+                value = all_data2[i - 720 + 240]
+            else:
+                continue  # 範囲外は無視
+            filtered_data[str(i + 2000)] = value
+
         return filtered_data
     finally:
         modbus_client.close()
+        modbus_client2.close()
 
 @app.get("/limited_registers", response_model=Dict[str, int])
 async def get_limited_registers():

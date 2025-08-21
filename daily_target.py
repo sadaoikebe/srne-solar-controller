@@ -1,7 +1,7 @@
 import requests
 import json
 import argparse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import math
 
 WEATHER_API_URL = "https://www.jma.go.jp/bosai/forecast/data/forecast/280000.json"
@@ -31,30 +31,52 @@ def fetch_tomorrow_weather_code():
         print(f"Weather API request failed: {e}, defaulting to weather code 200")
         return 200
 
-# TARGET_SOC_TABLE_SPRING = [
-#     (lambda wc: wc == 100, 50),  # 快晴
-#     (lambda wc: 101 <= wc < 200, 55),  # 晴れ
-#     (lambda wc: wc in {200, 201, 210, 211}, 60),  # 曇時々晴
-#     (lambda wc: 200 <= wc < 300, 70),  # 曇り
-#     (lambda wc: wc in {300, 301, 311, 313}, 90),  # 雨
-# ]
-
-TARGET_SOC_TABLE = [
-    (lambda wc: wc == 100, 55),  # 快晴
-    (lambda wc: 101 <= wc < 200, 60),  # 晴れ
-    (lambda wc: wc in {200, 201, 210, 211}, 65),  # 曇時々晴
-    (lambda wc: 200 <= wc < 300, 70),  # 曇り
-    (lambda wc: wc in {300, 301, 311, 313}, 90),  # 雨
+WEATHER_TIER_RULES = [
+    (lambda wc: wc == 100, 1),                      # 快晴
+    (lambda wc: 101 <= wc < 200, 2),                # 晴れ
+    (lambda wc: wc in {200, 201, 210, 211}, 3),     # 曇時々晴
+    (lambda wc: 200 <= wc < 300, 4),                # 曇り
+    (lambda wc: wc in {300, 301, 311, 313}, 5),     # 雨、荒天
 ]
 
-def determine_target_soc_from_weather(weather_code):
-    target_soc = 101 # 悪天候
-    for condition, soc in TARGET_SOC_TABLE:
-        if condition(weather_code):
-            target_soc = soc
-            break
+def determine_weather_tier(weather_code: int) -> int:
+    for cond, tier in WEATHER_TIER_RULES:
+        try:
+            if cond(weather_code):
+                return tier
+        except Exception:
+            continue
+    return 3  # デフォルトは曇時々晴
 
-    print(f"Weather code={weather_code}, Target SOC={target_soc}")
+MONTHLY_TARGET_SOC_TABLE = {
+    1:  [55, 60, 70, 85, 101],
+    2:  [50, 55, 65, 80, 101],
+    3:  [40, 45, 60, 75, 101],
+    4:  [30, 35, 45, 60, 70],
+    5:  [25, 30, 35, 40, 60],
+    6:  [30, 35, 40, 55, 70],
+    7:  [45, 50, 55, 65, 101],
+    8:  [45, 50, 55, 65, 101],
+    9:  [35, 40, 45, 60, 80],
+    10: [30, 35, 45, 60, 70],
+    11: [30, 35, 50, 70, 80],
+    12: [45, 50, 65, 80, 101],
+}
+
+def determine_target_soc_from_weather_and_month(weather_code: int, month: int) -> int:
+    if month not in MONTHLY_TARGET_SOC_TABLE:
+        month = 5 # 一番充電しない月
+
+    tier = determine_weather_tier(weather_code)  # 1..5
+    tier_index = tier - 1                        # 0..4
+    soc_list = MONTHLY_TARGET_SOC_TABLE[month]
+
+    if not (0 <= tier_index < len(soc_list) == 5):
+        return 25 # panic
+
+    target_soc = soc_list[tier_index]
+    print(f"Month={month}, Weather code={weather_code} (Tier {tier}), Target SOC={target_soc}")
+
     return target_soc
 
 def calculate_required_current(battery_soc, target_soc, charging_hours):
@@ -123,6 +145,7 @@ def parse_args():
     parser.add_argument("--weather-code", type=int, help="Weather code to use instead of fetching from JMA")
     parser.add_argument("--dry-run", action="store_true", help="Run in dry-run mode without writing to targets.json")
     parser.add_argument("--until-time", help="Time to charge until in HH:MM format (e.g., 05:30). Default is 05:30 next morning.")
+    #parser.add_argument("--debug-month", type=int, help="debug - specify month")
     return parser.parse_args()
 
 def main():
@@ -144,6 +167,10 @@ def main():
     if args.estimate_start_soc and args.start_soc is None:
         battery_soc = estimate_soc_at_2259(battery_soc)
 
+    #month = args.debug_month
+    #if month is None:
+    month = date.today().month
+
     # target_soc の決定
     if args.target_soc is not None:
         target_soc = args.target_soc
@@ -152,7 +179,7 @@ def main():
         weather_code = args.weather_code
         if weather_code is None:
             weather_code = fetch_tomorrow_weather_code()
-        target_soc = determine_target_soc_from_weather(weather_code)
+        target_soc = determine_target_soc_from_weather_and_month(weather_code, month)
 
     charging_hours = args.charging_hours
     if charging_hours is not None and args.until_time is not None:
