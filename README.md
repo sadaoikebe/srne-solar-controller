@@ -5,8 +5,9 @@ This repository contains scripts to manage a Modbus-based inverter and battery s
 Instruments(example):
 
 - PowMr SunSmart-10KP in split-phase mode
+- Growatt SPF6000ES Plus
 - Raspberry Pi with Ubuntu
-- 7.92kW-peak Solar Panels
+- 12.47kW-peak Solar Panels
 - 2 x JK-BMS based battery box (XR-07) with 32 x 300Ah LFP batteries
 
 ## Setup Instructions
