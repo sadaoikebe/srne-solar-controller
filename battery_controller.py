@@ -8,7 +8,7 @@ from datetime import datetime
 
 TIME_MARGIN_MINUTES = 1
 HYSTERESIS_SOC = 2
-CUTOFF_SOC = 8
+CUTOFF_SOC = 9
 
 LIMITED_REGISTERS_URL = "http://localhost:5004/limited_registers"
 SET_CHARGE_CURRENT_URL = "http://localhost:5004/set_charge_current"
@@ -126,7 +126,7 @@ def update_targets_json(daily_charge_current, target_soc):
     except Exception as e:
         print(f"Failed to write targets.json: {e}")
 
-def determine_next_state(current_state, estimated_soc, target_soc, battery_voltage, time_period, daily_charge_current, refresh_required):
+def determine_next_state(current_state, estimated_soc, target_soc, battery_voltage, time_period, daily_charge_current):
     """
     次の状態を決定する。
     Args:
@@ -144,19 +144,19 @@ def determine_next_state(current_state, estimated_soc, target_soc, battery_volta
 
     if time_period == "sbu_fixed":
         if current_state == State.UTI_CHARGING:
-            if battery_voltage > 51.4:
+            if battery_voltage > 51.4 and estimated_soc > CUTOFF_SOC:
                 next_state = State.SBU
             elif battery_voltage > 50.6:
                 next_state = State.UTI_STOPPED
         elif current_state == State.UTI_STOPPED:
-            if battery_voltage > 51.4:
+            if battery_voltage > 51.4 and estimated_soc > CUTOFF_SOC:
                 next_state = State.SBU
             elif battery_voltage < 49.6:
                 next_state = State.UTI_CHARGING
         else:
             if battery_voltage < 49.6:
                 next_state = State.UTI_CHARGING
-            elif battery_voltage < 49.9:
+            elif battery_voltage < 49.9 or estimated_soc <= CUTOFF_SOC:
                 next_state = State.UTI_STOPPED
 
     # UTI 固定時間帯では常に UTI
@@ -166,10 +166,7 @@ def determine_next_state(current_state, estimated_soc, target_soc, battery_volta
     else:
         # Cheap 時間帯での状態遷移（estimated_soc を使用）
         if current_state == State.UTI_CHARGING:
-            if refresh_required and estimated_soc >= 25.0:
-                next_state = State.SBU
-                refresh_required = False
-            elif estimated_soc > target_soc + HYSTERESIS_SOC:
+            if estimated_soc > target_soc + HYSTERESIS_SOC:
                 next_state = State.SBU
                 lower_charge_current = True
             elif estimated_soc > target_soc + 0.4:
@@ -192,7 +189,7 @@ def determine_next_state(current_state, estimated_soc, target_soc, battery_volta
             update_targets_json(new_daily_charge_current, target_soc)
             print(f"Updated daily_charge_current to {new_daily_charge_current}A")
     
-    return next_state, new_daily_charge_current, refresh_required
+    return next_state, new_daily_charge_current
 
 def adjust_battery_charge(battery_soc, load_power, battery_voltage, daily_charge_current, state):
     """
@@ -315,7 +312,6 @@ def main():
     estimated_soc = None
     current_state = State.SBU  # 初期状態
     battery_voltage = 52.0
-    refresh_required = False
 
     print("Starting charge controller...")
     while True:
@@ -363,23 +359,11 @@ def main():
             load_power = 0
             battery_voltage = 53.0
 
-        if estimated_soc < 8.0:
-            refresh_required = True
-
         # 時間帯を取得
         time_period = get_time_period()
 
         # 状態遷移
-        current_state, daily_charge_current, refresh_required = determine_next_state(current_state, estimated_soc, target_soc, battery_voltage, time_period, daily_charge_current, refresh_required)
-        # if next_state != current_state:
-        #     print(f"State transition: {current_state.value} -> {next_state.value}")
-        #     if current_state == State.UTI_CHARGING:
-        #         new_daily_charge_current = min(10, daily_charge_current)
-        #         if new_daily_charge_current != daily_charge_current:
-        #             daily_charge_current = new_daily_charge_current
-        #             update_targets_json(daily_charge_current, target_soc)
-        #             print(f"Updated daily_charge_current to {daily_charge_current}A after transition from UTI_CHARGING")
-        #     current_state = next_state
+        current_state, daily_charge_current = determine_next_state(current_state, estimated_soc, target_soc, battery_voltage, time_period, daily_charge_current)
         
         desired_priority = determine_output_priority(current_state)
         if last_output_priority != desired_priority:
