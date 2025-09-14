@@ -71,6 +71,3 @@ services:
     depends_on:
       modbus_api:
         condition: service_healthy
-
-volumes:
-  influxdb1-data:
