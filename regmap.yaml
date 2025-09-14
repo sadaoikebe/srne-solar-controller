@@ -1,0 +1,51 @@
+    "0x0100": { name: battery_soc,           unit: "%"}
+    "0x0101": { name: battery_voltage_powmr, unit: V,  scale: 0.1 }
+    "0x0102": { name: battery_current_powmr, unit: A,  scale: 0.1, signed: true }
+    "0x0103": { name: temp_controller,       unit: C, scale: 0.1 }
+
+    "0x0107": { name: pv1_voltage,           unit: V,  scale: 0.1 }
+    "0x0108": { name: pv1_current,           unit: A,  scale: 0.1 }
+    "0x0109": { name: pv1_power,             unit: W }
+
+    "0x010f": { name: pv2_voltage,           unit: V,  scale: 0.1 }
+    "0x0110": { name: pv2_current,           unit: A,  scale: 0.1 }
+    "0x0111": { name: pv2_power,             unit: W }
+
+    "0x0213": { name: grid_voltage_l1,       unit: V,  scale: 0.1 }
+    "0x022a": { name: grid_voltage_l2,       unit: V,  scale: 0.1 }
+    "0x0216": { name: inverter_voltage_l1,   unit: V,  scale: 0.1 }
+    "0x022c": { name: inverter_voltage_l2,   unit: V,  scale: 0.1 }
+    "0x0215": { name: grid_frequency,        unit: Hz, scale: 0.01 }
+    "0x0218": { name: inverter_frequency,    unit: Hz, scale: 0.01 }
+
+    "0x021b": { name: load_active_l1,        unit: W }
+    "0x0232": { name: load_active_l2,        unit: W }
+    "0x021c": { name: load_apparent_l1,      unit: W }
+    "0x0234": { name: load_apparent_l2,      unit: W }
+    "0x023d": { name: grid_l1,               unit: W }
+    "0x023e": { name: grid_l2,               unit: W }
+
+    "0xf02d": { name: batt_charge,           unit: kWh, scale: 0.05 }
+    "0xf02e": { name: batt_discharge,        unit: kWh, scale: 0.05 }
+    "0xf02f": { name: pv,                    unit: kWh, scale: 0.1 }
+    "0xf030": { name: load,                  unit: kWh, scale: 0.1 }
+    "0xf03c": { name: grid_to_batt,          unit: kWh, scale: 0.05 }
+    "0xf03d": { name: grid_to_load,          unit: kWh, scale: 0.1 }
+
+    "0xf034-0xf035": { name: cumulative_batt_charge, unit: kWh, scale: 0.05 }
+    "0xf036-0xf037": { name: cumulative_batt_discharge, unit: kWh, scale: 0.05 }
+    "0xf038-0xf039": { name: cumulative_pv,   unit: kWh, scale: 0.1 }
+    "0xf03a-0xf03b": { name: cumulative_load, unit: kWh, scale: 0.1 }
+
+    "1":           { name: pv3_voltage,       unit: V,  scale: 0.1 }
+    "2":           { name: pv4_voltage,       unit: V,  scale: 0.1 }
+    "7":           { name: pv3_current,       unit: A,  scale: 0.1 }
+    "8":           { name: pv4_current,       unit: A,  scale: 0.1 }
+    "3-4":         { name: pv3_power,         unit: W,  scale: 0.1 }
+    "5-6":         { name: pv4_power,         unit: W,  scale: 0.1 }
+    "48-49":       { name: pv3_daily,         unit: kWh, scale: 0.1 }
+    "50-51":       { name: pv3_cumulative,    unit: kWh, scale: 0.1 }
+    "17":          { name: battery_voltage_growatt, unit: V, scale: 0.01 }
+    "83":          { name: battery_current_growatt_charge, unit: A, scale: 0.1 }
+    "84":          { name: battery_current_growatt_draw,   unit: A, scale: 0.1 }
+    "10":          { name: load_growatt,      unit: W, scale: 0.1 }

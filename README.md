@@ -27,5 +27,11 @@ docker compose up -d
 
 - **`daily_target.py`**: Calculates `target_soc` and `daily_charge_current` daily at 22:59 using JMA weather data, writes to `targets.json`. Supports options like `--start-soc`, `--target-soc`, `--charging-hours`.
 
+in order to manually run this script other than 22:59:
+
+```bash
+docker exec -it daily_target python /app/daily_target.py
+```
+
 - **`battery_controller.py`**: Adjusts battery charge current every 5 seconds based on `targets.json`. Stops charging when SOC reaches `target_soc`.
 

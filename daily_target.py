@@ -3,6 +3,7 @@ import json
 import argparse
 from datetime import datetime, timedelta, date
 import math
+import os
 
 WEATHER_API_URL = "https://www.jma.go.jp/bosai/forecast/data/forecast/280000.json"
 LIMITED_REGISTERS_URL = "http://modbus_api:5004/limited_registers"
