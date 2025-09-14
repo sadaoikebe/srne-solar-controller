@@ -12,63 +12,10 @@ Instruments(example):
 
 ## Setup Instructions
 
-### 1. Clone the Repository
 ```bash
 git clone git@github.com:sadaoikebe/srne-solar-controller.git
-cd modbus-control
-```
-
-### 2. Set Up Virtual Environment
-```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install fastapi uvicorn pymodbus requests influxdb
-deactivate
-```
-
-### 3. Install Scripts
-```bash
-sudo mkdir -p /opt/modbus_api
-sudo cp *.py /opt/modbus_api/
-sudo cp -r venv /opt/modbus_api/
-sudo chown -R your_username:your_username /opt/modbus_api
-```
-
-### 4. Configure systemd Services
-
-* Modbus API Service:
-```bash
-sudo nano /etc/systemd/system/modbus-api.service
-```
-
-* DB Writer Service:
-```bash
-sudo nano /etc/systemd/system/db-writer.service
-```
-
-* Battery Controller Service:
-```bash
-sudo nano /etc/systemd/system/battery-controller.service
-```
-
-* Daily Target Calculation:
-```bash
-sudo nano /etc/systemd/system/daily-target.service
-sudo nano /etc/systemd/system/daily-target.timer
-```
-
-* Enable and Start Services
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable modbus-api.service
-sudo systemctl start modbus-api.service
-sudo systemctl enable db-writer.service
-sudo systemctl start db-writer.service
-sudo systemctl enable battery-controller.service
-sudo systemctl start battery-controller.service
-sudo systemctl enable daily-target.timer
-sudo systemctl start daily-target.timer
-sudo systemctl status daily-target.timer
+cd srne-solar-controller
+docker compose up -d
 ```
 
 ## Script Descriptions

@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+pymodbus
+pyserial
+requests
+influxdb
+jinja2
+python-multipart

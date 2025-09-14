@@ -1,14 +1,14 @@
 import time
 import requests
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from influxdb import InfluxDBClient
 
 # APIエンドポイント
-API_URL = "http://localhost:5004/registers"
+API_URL = "http://modbus_api:5004/registers"
 
-# InfluxDBクライアントの設定
-client = InfluxDBClient(host='localhost', port=8086)
+client = InfluxDBClient(host='influxdb', port=8086)
 client.switch_database('mysolardb')
 
 def fetch_registers():

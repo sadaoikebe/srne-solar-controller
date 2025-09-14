@@ -5,13 +5,15 @@ import json
 from enum import IntEnum
 from enum import Enum
 from datetime import datetime
+import os
 
 TIME_MARGIN_MINUTES = 1
 HYSTERESIS_SOC = 2
 CUTOFF_SOC = 9
+CONFIG_PATH = os.getenv("CONFIG_PATH", "/app/targets.json")
 
-LIMITED_REGISTERS_URL = "http://localhost:5004/limited_registers"
-SET_CHARGE_CURRENT_URL = "http://localhost:5004/set_charge_current"
+LIMITED_REGISTERS_URL = "http://modbus_api:5004/limited_registers"
+SET_CHARGE_CURRENT_URL = "http://modbus_api:5004/set_charge_current"
 
 class OutputPriority(IntEnum):
     SOL = 0
@@ -22,10 +24,6 @@ class State(Enum):
     UTI_CHARGING = "UTI_CHARGING"
     UTI_STOPPED = "UTI_STOPPED"
     SBU = "SBU"
-
-# # InfluxDBクライアントの設定
-# client = InfluxDBClient(host='localhost', port=8086)
-# client.switch_database('mysolardb')
 
 def fetch_registers():
     try:
@@ -53,7 +51,7 @@ def set_charge_current(current):
 
 def set_output_priority(priority):
     try:
-        response = requests.post("http://localhost:5004/set_output_priority", json={"value": priority})
+        response = requests.post("http://modbus_api:5004/set_output_priority", json={"value": priority})
         response.raise_for_status()
         result = response.json()
         if result.get('success'):
@@ -120,9 +118,9 @@ def get_time_period():
 def update_targets_json(daily_charge_current, target_soc):
     """targets.json を更新"""
     try:
-        with open("/opt/modbus_api/targets.json", "w") as f:
+        with open(CONFIG_PATH, "w") as f:
             json.dump({"target_soc": target_soc, "daily_charge_current": daily_charge_current}, f)
-        print(f"Wrote targets to /opt/modbus_api/targets.json: target_soc={target_soc}, daily_charge_current={daily_charge_current}")
+        print(f"Wrote targets to /app/targets.json: target_soc={target_soc}, daily_charge_current={daily_charge_current}")
     except Exception as e:
         print(f"Failed to write targets.json: {e}")
 
@@ -294,7 +292,7 @@ def determine_output_priority(state):
 
 def load_targets_from_file(current_daily_charge_current, current_target_soc):
     try:
-        with open("/opt/modbus_api/targets.json", "r") as f:
+        with open(CONFIG_PATH, "r") as f:
             targets = json.load(f)
             daily_charge_current = targets.get("daily_charge_current", current_daily_charge_current)
             target_soc = targets.get("target_soc", current_target_soc)

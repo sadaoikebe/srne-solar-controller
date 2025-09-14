@@ -1,0 +1,76 @@
+services:
+  influxdb:
+    image: influxdb:1.8
+    container_name: influxdb1
+    restart: unless-stopped
+    ports: ["8086:8086"]
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - /var/lib/influxdb:/var/lib/influxdb
+      - /etc/influxdb:/etc/influxdb:ro
+
+  modbus_api:
+    build: .
+    image: srne-app:latest
+    container_name: modbus_api
+    restart: unless-stopped
+    privileged: true
+    command: uvicorn modbus_api:app --host 0.0.0.0 --port ${MODBUS_API_PORT:-5004}
+    environment:
+      - BASIC_AUTH_USER=${BASIC_AUTH_USER}
+      - BASIC_AUTH_PASS=${BASIC_AUTH_PASS}
+      - MODBUS_API_PORT=${MODBUS_API_PORT:-5004}
+      - CONFIG_PATH=/app/targets.json
+    ports:
+      - "${MODBUS_API_PORT:-5004}:${MODBUS_API_PORT:-5004}"
+    volumes:
+      - .:/app
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:5004/limited_registers || exit 1"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 5s
+
+  db_writer:
+    image: srne-app:latest
+    container_name: db_writer
+    restart: unless-stopped
+    command: python db_writer.py
+    depends_on:
+      modbus_api:
+        condition: service_healthy
+      influxdb:
+        condition: service_started
+
+  battery_controller:
+    image: srne-app:latest
+    container_name: battery_controller
+    restart: unless-stopped
+    command: python battery_controller.py
+    environment:
+      - CONFIG_PATH=/app/targets.json
+    volumes:
+      - .:/app
+    depends_on:
+      modbus_api:
+        condition: service_healthy
+
+  daily_target:
+    build: .
+    container_name: daily_target
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      - TZ=${TZ}
+      - CONFIG_PATH=/app/targets.json
+    command: ["supercronic", "/app/crontab"]
+    depends_on:
+      modbus_api:
+        condition: service_healthy
+
+volumes:
+  influxdb1-data:

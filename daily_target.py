@@ -5,7 +5,8 @@ from datetime import datetime, timedelta, date
 import math
 
 WEATHER_API_URL = "https://www.jma.go.jp/bosai/forecast/data/forecast/280000.json"
-LIMITED_REGISTERS_URL = "http://localhost:5004/limited_registers"
+LIMITED_REGISTERS_URL = "http://modbus_api:5004/limited_registers"
+CONFIG_PATH = os.getenv("CONFIG_PATH", "/app/targets.json")
 
 def fetch_registers():
     try:
@@ -198,9 +199,9 @@ def main():
     # targets.json に書き込み
     if not args.dry_run: 
         try:
-            with open("/opt/modbus_api/targets.json", "w") as f:
+            with open(CONFIG_PATH, "w") as f:
                 json.dump({"target_soc": target_soc, "daily_charge_current": daily_charge_current}, f)
-            print(f"Wrote targets to /opt/modbus_api/targets.json: target_soc={target_soc}, daily_charge_current={daily_charge_current}")
+            print(f"Wrote targets to /app/targets.json: target_soc={target_soc}, daily_charge_current={daily_charge_current}")
         except Exception as e:
             print(f"Failed to write targets.json: {e}")
 

@@ -8,6 +8,7 @@ import uvicorn
 from enum import IntEnum
 import json
 import serial.tools.list_ports
+import os, hmac
 
 class OutputPriority(IntEnum):
     SOL = 0
@@ -20,13 +21,12 @@ class ChargingPriority(IntEnum):
     SNU = 2
     OSO = 3
 
-with open("config.json") as f:
-    config = json.load(f)
-VALID_USERNAME = config["valid_username"]
-VALID_PASSWORD = config["valid_password"]
+VALID_USERNAME = os.getenv("BASIC_AUTH_USER")
+VALID_PASSWORD = os.getenv("BASIC_AUTH_PASS")
+CONFIG_PATH = os.getenv("CONFIG_PATH", "/app/targets.json")
 
 app = FastAPI(title="Modbus Register API", description="API to read/write Modbus registers")
-templates = Jinja2Templates(directory="/opt/modbus_api/templates")
+templates = Jinja2Templates(directory="/app")
 security = HTTPBasic()
 
 def get_modbus_client(vid: int, pid: int) -> modbusClient.ModbusSerialClient | None:
@@ -252,15 +252,16 @@ async def get_charging_priority():
         modbus_client.close()
 
 def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):
-    if credentials.username != VALID_USERNAME or credentials.password != VALID_PASSWORD:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    if not VALID_USERNAME or not VALID_PASSWORD: return
+    if not (hmac.compare_digest(credentials.username, VALID_USERNAME) and hmac.compare_digest(credentials.password, VALID_PASSWORD)):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized", headers={"WWW-Authenticate": "Basic"})
     return credentials
 
 @app.get("/set_targets_form", response_class=HTMLResponse)
 async def set_targets_form(request: Request, credentials: HTTPBasicCredentials = Depends(verify_credentials)):
     # 現在の targets.json の値を読み込み
     try:
-        with open("/opt/modbus_api/targets.json", "r") as f:
+        with open(CONFIG_PATH, "r") as f:
             targets = json.load(f)
             target_soc = targets.get("target_soc", 90)  # デフォルト値
             daily_charge_current = targets.get("daily_charge_current", 0)  # デフォルト値
@@ -284,7 +285,7 @@ async def set_targets(
 ):
     targets = {"target_soc": target_soc, "daily_charge_current": daily_charge_current}
     try:
-        with open("/opt/modbus_api/targets.json", "w") as f:
+        with open(CONFIG_PATH, "w") as f:
             json.dump(targets, f)
         return templates.TemplateResponse("set_targets.html", {
             "request": request,
@@ -301,5 +302,5 @@ async def set_targets(
         })
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=5004, log_level="error")
-
+    PORT = int(os.getenv("MODBUS_API_PORT") or "5004")
+    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="error")
