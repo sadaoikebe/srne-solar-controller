@@ -25,17 +25,17 @@
     "0x023d": { name: grid_l1,               unit: W }
     "0x023e": { name: grid_l2,               unit: W }
 
-    "0xf02d": { name: batt_charge,           unit: kWh, scale: 0.05 }
-    "0xf02e": { name: batt_discharge,        unit: kWh, scale: 0.05 }
-    "0xf02f": { name: pv,                    unit: kWh, scale: 0.1 }
-    "0xf030": { name: load,                  unit: kWh, scale: 0.1 }
-    "0xf03c": { name: grid_to_batt,          unit: kWh, scale: 0.05 }
-    "0xf03d": { name: grid_to_load,          unit: kWh, scale: 0.1 }
+    "0xf02d": { name: batt_charge_daily,    unit: kWh, scale: 0.05 }
+    "0xf02e": { name: batt_discharge_daily, unit: kWh, scale: 0.05 }
+    "0xf02f": { name: pv_powmr_daily,       unit: kWh, scale: 0.1 }
+    "0xf030": { name: load_daily,           unit: kWh, scale: 0.1 }
+    "0xf03c": { name: grid_to_batt_daily,   unit: kWh, scale: 0.05 }
+    "0xf03d": { name: grid_to_load_daily,   unit: kWh, scale: 0.1 }
 
-    "0xf034-0xf035": { name: cumulative_batt_charge, unit: kWh, scale: 0.05 }
-    "0xf036-0xf037": { name: cumulative_batt_discharge, unit: kWh, scale: 0.05 }
-    "0xf038-0xf039": { name: cumulative_pv,   unit: kWh, scale: 0.1 }
-    "0xf03a-0xf03b": { name: cumulative_load, unit: kWh, scale: 0.1 }
+    "0xf034-0xf035": { name: batt_charge_cumulative,    unit: kWh, scale: 0.05 }
+    "0xf036-0xf037": { name: batt_discharge_cumulative, unit: kWh, scale: 0.05 }
+    "0xf038-0xf039": { name: pv_cumulative,   unit: kWh, scale: 0.1 }
+    "0xf03a-0xf03b": { name: load_cumulative, unit: kWh, scale: 0.1 }
 
     "1":           { name: pv3_voltage,       unit: V,  scale: 0.1 }
     "2":           { name: pv4_voltage,       unit: V,  scale: 0.1 }
