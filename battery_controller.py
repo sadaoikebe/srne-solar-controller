@@ -142,19 +142,19 @@ def determine_next_state(current_state, estimated_soc, target_soc, battery_volta
 
     if time_period == "sbu_fixed":
         if current_state == State.UTI_CHARGING:
-            if battery_voltage > 51.4 and estimated_soc > CUTOFF_SOC:
+            if battery_voltage > 51.6 and estimated_soc > CUTOFF_SOC:
                 next_state = State.SBU
             elif battery_voltage > 50.6:
                 next_state = State.UTI_STOPPED
         elif current_state == State.UTI_STOPPED:
-            if battery_voltage > 51.4 and estimated_soc > CUTOFF_SOC:
+            if battery_voltage > 51.6 and estimated_soc > CUTOFF_SOC:
                 next_state = State.SBU
-            elif battery_voltage < 49.6:
+            elif battery_voltage < 49.4:
                 next_state = State.UTI_CHARGING
         else:
-            if battery_voltage < 49.6:
+            if battery_voltage < 49.4:
                 next_state = State.UTI_CHARGING
-            elif battery_voltage < 49.9 or estimated_soc <= CUTOFF_SOC:
+            elif battery_voltage < 49.6 or estimated_soc <= CUTOFF_SOC:
                 next_state = State.UTI_STOPPED
 
     # UTI 固定時間帯では常に UTI
@@ -228,10 +228,10 @@ def adjust_battery_charge(battery_soc, load_power, battery_voltage, daily_charge
     # ]
     soc_charge_limits = [
         (60, 120),  # SOC < 60: 120A
-        (70, 110),  # 60 <= SOC < 70: 110A
-        (80, 100),  # 70 <= SOC < 80: 100A
-        (85, 90),   # 80 <= SOC < 85: 90A
-        (90, 80),
+        (70, 105),  # 60 <= SOC < 70: 110A
+        (80, 90),   # 70 <= SOC < 80: 100A
+        (85, 80),   # 80 <= SOC < 85: 90A
+        (90, 70),
         (93, 60),
         (96, 50),
         (98, 40),
@@ -248,19 +248,16 @@ def adjust_battery_charge(battery_soc, load_power, battery_voltage, daily_charge
         target_charge_current = min(10, target_charge_current)  # SOC >= 100: 10A
 
     voltage_charge_limits = [
-        (54.8, 120),
-        (55.1, 80),
-        (55.2, 60),
-        (55.3, 40),
-        (55.4, 30),
-        (55.5, 25),
-        (55.6, 20),
-        (55.7, 12),
-        (55.8, 9),
-        (55.9, 7),
-        (56.0, 5),
-        (56.1, 4),
-        (56.2, 3),
+        (55.2, 120),
+        (55.6, 80),
+        (55.8, 60),
+        (56.0, 40),
+        (56.3, 30),
+        (56.5, 24),
+        (56.6, 18),
+        (56.7, 14),
+        (56.8, 10),
+        (56.9, 7),
     ]
 
     for volt_threshold, limit in voltage_charge_limits:
@@ -362,7 +359,7 @@ def main():
 
         # 状態遷移
         current_state, daily_charge_current = determine_next_state(current_state, estimated_soc, target_soc, battery_voltage, time_period, daily_charge_current)
-        
+
         desired_priority = determine_output_priority(current_state)
         if last_output_priority != desired_priority:
             set_output_priority(desired_priority)
