@@ -25,13 +25,19 @@ services:
   grafana:
     image: grafana/grafana:10.4.3
     container_name: grafana
+    restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=${USERNAME}
       - GF_SECURITY_ADMIN_PASSWORD=${PASSWORD}
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      - INFLUXDB2_ORG=${INFLUXDB2_ORG}
+      - INFLUXDB2_BUCKET=${INFLUXDB2_BUCKET}
+      - INFLUXDB2_TOKEN=${INFLUXDB2_TOKEN}
     volumes:
       - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
     depends_on:
       - influxdb
 
@@ -73,13 +79,13 @@ services:
       - INFLUX_TOKEN=${INFLUXDB2_TOKEN}
       - INFLUX_ORG=${INFLUXDB2_ORG}
       - INFLUX_BUCKET=${INFLUXDB2_BUCKET}
+    volumes:
+      - .:/app
     depends_on:
       modbus_api:
         condition: service_healthy
       influxdb:
         condition: service_healthy
-    volumes:
-      - .:/app
 
   battery_controller:
     image: srne-app:latest
