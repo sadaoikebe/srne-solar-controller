@@ -14,8 +14,8 @@ services:
       - DOCKER_INFLUXDB_INIT_RETENTION=${INFLUXDB2_RETENTION:-0}
       - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB2_TOKEN}
     volumes:
-      - influxdb2-data:/var/lib/influxdb2
-      - influxdb2-config:/etc/influxdb2
+      - /var/lib/influxdb2:/var/lib/influxdb2
+      - /etc/influxdb2:/etc/influxdb2
     healthcheck:
       test: ["CMD", "influx", "ping", "--host", "http://localhost:8086"]
       interval: 5s

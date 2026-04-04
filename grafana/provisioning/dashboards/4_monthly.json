@@ -1,0 +1,597 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "One row per month. Monthly values = last - first of cumulative registers.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "icon": "dashboard",
+      "title": "Real-Time",
+      "tooltip": "Live data",
+      "type": "link",
+      "url": "/d/solar-realtime/solar-real-time"
+    },
+    {
+      "icon": "dashboard",
+      "title": "Graphs",
+      "tooltip": "Historical trends",
+      "type": "link",
+      "url": "/d/solar-graphs/solar-historical-graphs"
+    },
+    {
+      "icon": "dashboard",
+      "title": "Daily Stats",
+      "tooltip": "Daily table",
+      "type": "link",
+      "url": "/d/solar-daily/solar-daily-statistics"
+    },
+    {
+      "icon": "dashboard",
+      "title": "Monthly Stats",
+      "tooltip": "Monthly table",
+      "type": "link",
+      "url": "/d/solar-monthly/solar-monthly-statistics"
+    }
+  ],
+  "panels": [
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "srne-influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "center",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "_time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Date"
+              },
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Self-Sufficiency (%)"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "custom.width",
+                "value": 170
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 50
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 70
+                    },
+                    {
+                      "color": "green",
+                      "value": 85
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "PV (kWh)"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "transparent",
+                      "value": null
+                    },
+                    {
+                      "color": "rgba(250,222,42,0.15)",
+                      "value": 10
+                    },
+                    {
+                      "color": "rgba(250,222,42,0.40)",
+                      "value": 30
+                    },
+                    {
+                      "color": "rgba(250,222,42,0.65)",
+                      "value": 50
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "frameIndex": 0,
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "_time"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "import \"math\"\nimport \"timezone\"\n\n// === Cumulative metrics: delta = last_of_month - first_of_month ===\n// One aggregateWindow pass per function, then a single join.\n\ncum_raw =\n  from(bucket: v.defaultBucket)\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n    |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n    |> filter(fn: (r) =>\n        r.name == \"pv_cumulative\" or\n        r.name == \"pv3_cumulative\" or\n        r.name == \"load_cumulative\" or\n        r.name == \"batt_charge_cumulative\" or\n        r.name == \"batt_discharge_cumulative\"\n    )\n    |> group(columns: [\"name\"])\n\nmo_last =\n  cum_raw\n    |> aggregateWindow(every: 1mo, fn: last,  createEmpty: false)\n    |> group()\n    |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n\nmo_first =\n  cum_raw\n    |> aggregateWindow(every: 1mo, fn: first, createEmpty: false)\n    |> group()\n    |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n\ndeltas =\n  join(tables: {last: mo_last, first: mo_first}, on: [\"_time\"])\n    |> map(fn: (r) => {\n        pv   = ((if exists r.pv_cumulative_last    then r.pv_cumulative_last    else 0.0) -\n                (if exists r.pv_cumulative_first   then r.pv_cumulative_first   else 0.0) +\n                (if exists r.pv3_cumulative_last   then r.pv3_cumulative_last   else 0.0) -\n                (if exists r.pv3_cumulative_first  then r.pv3_cumulative_first  else 0.0))\n        load = ((if exists r.load_cumulative_last  then r.load_cumulative_last  else 0.0) -\n                (if exists r.load_cumulative_first then r.load_cumulative_first else 0.0))\n        bc   = ((if exists r.batt_charge_cumulative_last   then r.batt_charge_cumulative_last   else 0.0) -\n                (if exists r.batt_charge_cumulative_first  then r.batt_charge_cumulative_first  else 0.0))\n        bd   = ((if exists r.batt_discharge_cumulative_last   then r.batt_discharge_cumulative_last   else 0.0) -\n                (if exists r.batt_discharge_cumulative_first  then r.batt_discharge_cumulative_first  else 0.0))\n        return {_time: r._time,\n                \"PV (kWh)\":             math.round(x: (if pv   >= 0.0 then pv   else 0.0) * 10.0) / 10.0,\n                \"Load (kWh)\":           math.round(x: (if load >= 0.0 then load else 0.0) * 10.0) / 10.0,\n                \"Batt Charge (kWh)\":    math.round(x: (if bc   >= 0.0 then bc   else 0.0) * 10.0) / 10.0,\n                \"Batt Discharge (kWh)\": math.round(x: (if bd   >= 0.0 then bd   else 0.0) * 10.0) / 10.0}\n      })\n\n// === Grid import: daily-reset register \u2192 max per day \u2192 sum per month ===\ngrid_monthly =\n  from(bucket: v.defaultBucket)\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n    |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n    |> filter(fn: (r) => r.name == \"grid_to_load_daily\" or r.name == \"grid_to_batt_daily\")\n    |> group(columns: [\"name\"])\n    |> aggregateWindow(every: 1d, location: timezone.location(name: \"Asia/Tokyo\"), fn: max, createEmpty: false)\n    |> aggregateWindow(every: 1mo, fn: sum, createEmpty: false)\n    |> group()\n    |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n    |> map(fn: (r) => ({\n        _time: r._time,\n        \"Grid Import (kWh)\":\n          math.round(x: ((if exists r.grid_to_load_daily then r.grid_to_load_daily else 0.0) +\n                         (if exists r.grid_to_batt_daily then r.grid_to_batt_daily else 0.0)) * 10.0) / 10.0\n    }))\n\n// === Join the two results on _time ===\njoin(tables: {d: deltas, g: grid_monthly}, on: [\"_time\"])\n  |> map(fn: (r) => {\n      load = r[\"Load (kWh)_d\"]\n      gi   = r[\"Grid Import (kWh)_g\"]\n      ss   = if load > 0.0 then math.round(x: (1.0 - gi / load) * 1000.0) / 10.0 else 0.0\n      return {\n        _time:                   r._time,\n        \"PV (kWh)\":              r[\"PV (kWh)_d\"],\n        \"Load (kWh)\":            load,\n        \"Grid Import (kWh)\":     gi,\n        \"Batt Charge (kWh)\":     r[\"Batt Charge (kWh)_d\"],\n        \"Batt Discharge (kWh)\":  r[\"Batt Discharge (kWh)_d\"],\n        \"Self-Sufficiency (%)\":  ss\n      }\n  })\n  |> sort(columns: [\"_time\"], desc: true)\n",
+          "refId": "A"
+        }
+      ],
+      "title": "Monthly Statistics \u2014 One Row per Month",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "srne-influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#FADE2A",
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "kwh"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 15
+      },
+      "id": 2,
+      "options": {
+        "barRadius": 0.1,
+        "barWidth": 0.7,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "auto",
+        "showValue": "never",
+        "stacking": "none",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 100
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "import \"timezone\"\n\nfrom(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\" and r.name == \"pv_powmr_daily\")\n  |> aggregateWindow(every: 1d, location: timezone.location(name: \"Asia/Tokyo\"), fn: max, createEmpty: false)\n  |> aggregateWindow(every: 1mo, fn: sum, createEmpty: false)\n  |> keep(columns: [\"_time\",\"_value\"])",
+          "refId": "A"
+        }
+      ],
+      "title": "PV Generation / Month (kWh)",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "srne-influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#F2495C",
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "kwh"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 15
+      },
+      "id": 3,
+      "options": {
+        "barRadius": 0.1,
+        "barWidth": 0.7,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "auto",
+        "showValue": "never",
+        "stacking": "none",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 100
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "import \"timezone\"\n\nfrom(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\" and r.name == \"grid_to_load_daily\")\n  |> aggregateWindow(every: 1d, location: timezone.location(name: \"Asia/Tokyo\"), fn: max, createEmpty: false)\n  |> aggregateWindow(every: 1mo, fn: sum, createEmpty: false)\n  |> keep(columns: [\"_time\",\"_value\"])",
+          "refId": "A"
+        }
+      ],
+      "title": "Grid Import / Month (kWh)",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "srne-influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#5794F2",
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "kwh"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 23
+      },
+      "id": 4,
+      "options": {
+        "barRadius": 0.1,
+        "barWidth": 0.7,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "auto",
+        "showValue": "never",
+        "stacking": "none",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 100
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "import \"timezone\"\n\nfrom(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\" and r.name == \"load_daily\")\n  |> aggregateWindow(every: 1d, location: timezone.location(name: \"Asia/Tokyo\"), fn: max, createEmpty: false)\n  |> aggregateWindow(every: 1mo, fn: sum, createEmpty: false)\n  |> keep(columns: [\"_time\",\"_value\"])",
+          "refId": "A"
+        }
+      ],
+      "title": "Load Consumption / Month (kWh)",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "srne-influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#73BF69",
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "kwh"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 23
+      },
+      "id": 5,
+      "options": {
+        "barRadius": 0.1,
+        "barWidth": 0.7,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "auto",
+        "showValue": "never",
+        "stacking": "none",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 100
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\" and r.name == \"batt_charge_cumulative\")\n  |> group(columns: [\"name\"])\n  |> aggregateWindow(every: 1mo, fn: last, createEmpty: false)\n  |> difference()\n  |> rename(columns: {\"_value\": \"Batt Charge (kWh)\"})\n  |> drop(columns: [\"name\",\"reg\",\"unit\",\"_measurement\",\"_field\"])",
+          "refId": "A"
+        }
+      ],
+      "title": "Batt Charge / Month (kWh)",
+      "type": "barchart"
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": [
+    "solar",
+    "monthly",
+    "stats"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1y",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Solar Monitor \u2014 Monthly Statistics",
+  "uid": "solar-monthly",
+  "version": 1,
+  "weekStart": ""
+}
