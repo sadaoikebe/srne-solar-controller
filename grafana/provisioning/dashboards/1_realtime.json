@@ -257,64 +257,6 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "fixedColor": "orange",
-            "mode": "fixed"
-          },
-          "decimals": 0,
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "orange",
-                "value": null
-              }
-            ]
-          },
-          "unit": "watt"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 1,
-        "w": 3,
-        "x": 3,
-        "y": 4
-      },
-      "id": 100,
-      "options": {
-        "colorMode": "background_solid",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "textMode": "value"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "srne-influxdb"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) =>\n      r.name == \"battery_voltage_powmr\" or r.name == \"battery_current_powmr\" or\n      r.name == \"battery_voltage_growatt\" or\n      r.name == \"battery_current_growatt_charge\" or\n      r.name == \"battery_current_growatt_draw\"\n  )\n  |> last()\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      _value:\n        (if exists r.battery_voltage_powmr and exists r.battery_current_powmr\n         then -float(v: r.battery_voltage_powmr) * float(v: r.battery_current_powmr)\n         else 0.0) +\n        (if exists r.battery_voltage_growatt and\n            exists r.battery_current_growatt_charge and\n            exists r.battery_current_growatt_draw\n         then float(v: r.battery_voltage_growatt) *\n              (float(v: r.battery_current_growatt_charge) -\n               float(v: r.battery_current_growatt_draw))\n         else 0.0)\n  }))\n  |> keep(columns: [\"_time\",\"_value\"])",
-          "refId": "A"
-        }
-      ],
-      "title": "Battery Power",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "influxdb",
-        "uid": "srne-influxdb"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
             "fixedColor": "yellow",
             "mode": "fixed"
           },
@@ -656,122 +598,6 @@
       "type": "stat"
     },
     {
-      "datasource": {
-        "type": "influxdb",
-        "uid": "srne-influxdb"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "fixedColor": "green",
-            "mode": "fixed"
-          },
-          "decimals": 2,
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "kwh"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 1,
-        "w": 3,
-        "x": 6,
-        "y": 4
-      },
-      "id": 13,
-      "options": {
-        "colorMode": "background_solid",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "textMode": "value"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "srne-influxdb"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\" and r.name == \"batt_charge_daily\")\n  |> last()\n  |> keep(columns: [\"_time\",\"_value\"])",
-          "refId": "A"
-        }
-      ],
-      "title": "Batt Charge Today",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "influxdb",
-        "uid": "srne-influxdb"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "fixedColor": "orange",
-            "mode": "fixed"
-          },
-          "decimals": 2,
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "orange",
-                "value": null
-              }
-            ]
-          },
-          "unit": "kwh"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 1,
-        "w": 3,
-        "x": 9,
-        "y": 4
-      },
-      "id": 14,
-      "options": {
-        "colorMode": "background_solid",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "textMode": "value"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "srne-influxdb"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\" and r.name == \"batt_discharge_daily\")\n  |> last()\n  |> keep(columns: [\"_time\",\"_value\"])",
-          "refId": "A"
-        }
-      ],
-      "title": "Batt Discharge Today",
-      "type": "stat"
-    },
-    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -780,7 +606,7 @@
         "y": 5
       },
       "id": 101,
-      "title": "\u26a1  Live Graphs \u2014 Last 3 Hours",
+      "title": "⚡  Live Graphs — Last 3 Hours",
       "type": "row"
     },
     {
@@ -1172,7 +998,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "SOC (%)"
+              "options": "SOC"
             },
             "properties": [
               {
@@ -1202,7 +1028,7 @@
           "calcs": [],
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": true
+          "showLegend": false
         },
         "tooltip": {
           "mode": "multi",
@@ -1215,7 +1041,7 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\" and r.name == \"battery_soc\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> rename(columns: {\"_value\": \"SOC (%)\"})\n  |> drop(columns: [\"name\",\"reg\",\"unit\",\"_measurement\",\"_field\"])",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\" and r.name == \"battery_soc\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> rename(columns: {\"_value\": \"SOC\"})",
           "refId": "A"
         }
       ],
@@ -1238,7 +1064,7 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Solar Monitor \u2014 Real-Time",
+  "title": "Solar Monitor — Real-Time",
   "uid": "solar-realtime",
   "version": 1,
   "weekStart": ""
