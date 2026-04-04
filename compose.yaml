@@ -17,7 +17,7 @@ services:
       - influxdb2-data:/var/lib/influxdb2
       - influxdb2-config:/etc/influxdb2
     healthcheck:
-      test: ["CMD", "influx", "ping", "-host", "http://localhost:8086"]
+      test: ["CMD", "influx", "ping", "--host", "http://localhost:8086"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -66,12 +66,20 @@ services:
     image: srne-app:latest
     container_name: db_writer
     restart: unless-stopped
+    working_dir: /app
     command: python db_writer.py
+    environment:
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=${INFLUXDB2_TOKEN}
+      - INFLUX_ORG=${INFLUXDB2_ORG}
+      - INFLUX_BUCKET=${INFLUXDB2_BUCKET}
     depends_on:
       modbus_api:
         condition: service_healthy
       influxdb:
-        condition: service_started
+        condition: service_healthy
+    volumes:
+      - .:/app
 
   battery_controller:
     image: srne-app:latest
@@ -105,4 +113,3 @@ volumes:
   influxdb2-data:
   influxdb2-config:
   grafana-data:
-

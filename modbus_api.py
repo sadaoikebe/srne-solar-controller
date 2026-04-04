@@ -1,9 +1,9 @@
-from fastapi import FastAPI, Request, Depends, Form, HTTPException
+from fastapi import FastAPI, Request, Depends, Form, HTTPException, status
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import pymodbus.client as modbusClient
-from typing import Dict, List
+from typing import Dict, List, Tuple, Iterable
 import uvicorn
 from enum import IntEnum
 import json
@@ -49,10 +49,10 @@ POWMR_REQUIRED: Tuple[int, ...] = (
     0x010F, 0x0110, 0x0111,
     # AC V/F & load/grid
     0x0213, 0x022A, 0x0216, 0x022C, 0x0215, 0x0218,
-    0x021B, 0x0232, 0x023D, 0x023E,
+    0x021B, 0x0232, 0x021C, 0x0234, 0x023D, 0x023E,
     # today kWh
     0xF02D, 0xF02E, 0xF02F, 0xF030, 0xF03C, 0xF03D,
-    # cumulative (32bitの片側) — 結合は db-writer
+    # cumulative (32bit pairs) — combined in db_writer
     0xF034, 0xF035, 0xF036, 0xF037, 0xF038, 0xF039, 0xF03A, 0xF03B,
 )
 
@@ -113,23 +113,28 @@ def get_modbus_client(vid: int, pid: int) -> modbusClient.ModbusSerialClient | N
     print(f"Connecting to {port}")
     return modbusClient.ModbusSerialClient(port=port, baudrate=9600, timeout=1)
 
-# Modbusクライアントの初期化
+# Modbus client initialisation (module-level; connection is opened/closed per request)
 modbus = get_modbus_client(vid=6790, pid=29987)
 modbus2 = get_modbus_client(vid=1250, pid=5137)
 
 def connect_modbus():
-    """Modbusに接続"""
+    """Open a Modbus connection to the PowMr inverter and return the client."""
+    if modbus is None:
+        raise HTTPException(status_code=500, detail="PowMr Modbus device not found")
     if not modbus.connect():
-        raise HTTPException(status_code=500, detail="Failed to connect to Modbus device")
+        raise HTTPException(status_code=500, detail="Failed to connect to PowMr Modbus device")
     return modbus
 
 def connect_modbus2():
+    """Open a Modbus connection to the Growatt inverter and return the client."""
+    if modbus2 is None:
+        raise HTTPException(status_code=500, detail="Growatt Modbus device not found")
     if not modbus2.connect():
-        raise HTTPException(status_code=500, detail="Failed to connect to Modbus2 device")
+        raise HTTPException(status_code=500, detail="Failed to connect to Growatt Modbus device")
     return modbus2
 
 def read_modbus_registers(modbus_client, addresses_and_counts: List[tuple]) -> List[int]:
-    """指定されたアドレスとカウントでレジスタを読み込む"""
+    """Read holding registers at the given (address, count) pairs and return a flat list."""
     data = []
     for address, count in addresses_and_counts:
         response = modbus_client.read_holding_registers(address=address, count=count)
@@ -140,7 +145,7 @@ def read_modbus_registers(modbus_client, addresses_and_counts: List[tuple]) -> L
     return data
 
 def read_modbus_input_registers(modbus_client, addresses_and_counts: List[tuple]) -> List[int]:
-    """指定されたアドレスとカウントでレジスタを読み込む"""
+    """Read input registers at the given (address, count) pairs and return a flat list."""
     data = []
     for address, count in addresses_and_counts:
         response = modbus_client.read_input_registers(address=address, count=count)
@@ -152,7 +157,7 @@ def read_modbus_input_registers(modbus_client, addresses_and_counts: List[tuple]
 
 @app.get("/registers", response_model=Dict[str, int])
 async def get_all_registers() -> Dict[str, int]:
-    """必要な全レジスタを読み込む"""
+    """Read all required registers from both inverters and return a combined dict."""
     powmr_client = connect_modbus()
     growatt_client = connect_modbus2()
     try:
@@ -185,21 +190,30 @@ async def get_all_registers() -> Dict[str, int]:
             pass
 
 @app.get("/limited_registers", response_model=Dict[str, int])
-async def get_limited_registers():
-    """5秒ごと用の限定レジスタ（0, 1, 2, 44, 68）を読み込む"""
+async def get_limited_registers() -> Dict[str, int]:
+    """Read the five fast-poll registers used by battery_controller every 5 s.
+
+    Returns hex-keyed dict, e.g. {"0x0100": 87, "0x0101": 534, ...}
+      0x0100 = battery SOC (%)
+      0x0101 = battery voltage (×0.1 V)
+      0x0102 = battery current (×0.1 A, 16-bit two's complement)
+      0x021C = load apparent power L1 (W)
+      0x0234 = load apparent power L2 (W)
+    """
     client = connect_modbus()
     try:
-        partial_blocks = ((0x0100, 3), (0x021C, 1), (0x0234, 1))
-        raw = _read_holding_blocks(client, partial_blocks, unit_id=unit_id)
+        partial_blocks: Tuple[Tuple[int, int], ...] = ((0x0100, 3), (0x021C, 1), (0x0234, 1))
+        raw = _read_holding_blocks(client, partial_blocks)
         subset = _as_hex_dict(raw, POWMR_FAST_ADDRS)
 
-        # 念のため不足チェック
         if len(subset) != len(POWMR_FAST_ADDRS):
             need = {f"0x{a:04X}" for a in POWMR_FAST_ADDRS}
             missing = sorted(need - set(subset.keys()))
             raise HTTPException(status_code=502, detail=f"Missing fast addrs: {missing}")
 
         return subset
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PowMr limited read error: {e}")
     finally:
@@ -216,24 +230,15 @@ async def set_charge_current(request: Request):
         value = request_data.get('value')
         if value is None or not isinstance(value, (int, float)):
             raise HTTPException(status_code=400, detail="Invalid or missing 'value' in request body")
-        
-        regval = int(value * 10)  # 電流値を10倍して整数化
+
+        regval = int(value * 10)  # current value scaled ×10 as required by register spec
         response = modbus_client.write_register(0xe205, regval)
-        if not response.isError():  # response.isError() が False なら成功
-            return {
-                'success': True,
-                'value': value
-            }
+        if not response.isError():
+            return {'success': True, 'value': value}
         else:
-            return {
-                'success': False,
-                'message': 'Error occurred when setting the value.'
-            }
+            return {'success': False, 'message': 'Error occurred when setting the value.'}
     except Exception as e:
-        return {
-            'success': False,
-            'message': f"Error: {str(e)}"
-        }
+        return {'success': False, 'message': f"Error: {str(e)}"}
     finally:
         modbus_client.close()
 
@@ -245,14 +250,11 @@ async def set_output_priority(request: Request):
         value = request_data.get('value')
         if value is None or value not in [e.value for e in OutputPriority]:
             raise HTTPException(status_code=400, detail=f"Invalid value for Output Priority. Must be one of {[e.name for e in OutputPriority]}")
-        
+
         response = modbus_client.write_register(0xe204, int(value))
         if response.isError():
             raise HTTPException(status_code=500, detail="Failed to set Output Priority")
-        return {
-            'success': True,
-            'value': OutputPriority(int(value)).name
-        }
+        return {'success': True, 'value': OutputPriority(int(value)).name}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
     finally:
@@ -268,10 +270,7 @@ async def get_output_priority():
         value = response.registers[0]
         if value not in [e.value for e in OutputPriority]:
             raise HTTPException(status_code=500, detail=f"Invalid Output Priority value: {value}")
-        return {
-            'value': OutputPriority(value).name,
-            'raw_value': value
-        }
+        return {'value': OutputPriority(value).name, 'raw_value': value}
     finally:
         modbus_client.close()
 
@@ -283,14 +282,11 @@ async def set_charging_priority(request: Request):
         value = request_data.get('value')
         if value is None or value not in [e.value for e in ChargingPriority]:
             raise HTTPException(status_code=400, detail=f"Invalid value for Charging Priority. Must be one of {[e.name for e in ChargingPriority]}")
-        
+
         response = modbus_client.write_register(0xe20f, int(value))
         if response.isError():
             raise HTTPException(status_code=500, detail="Failed to set Charging Priority")
-        return {
-            'success': True,
-            'value': ChargingPriority(int(value)).name
-        }
+        return {'success': True, 'value': ChargingPriority(int(value)).name}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
     finally:
@@ -306,27 +302,29 @@ async def get_charging_priority():
         value = response.registers[0]
         if value not in [e.value for e in ChargingPriority]:
             raise HTTPException(status_code=500, detail=f"Invalid Charging Priority value: {value}")
-        return {
-            'value': ChargingPriority(value).name,
-            'raw_value': value
-        }
+        return {'value': ChargingPriority(value).name, 'raw_value': value}
     finally:
         modbus_client.close()
 
 def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):
-    if not VALID_USERNAME or not VALID_PASSWORD: return
-    if not (hmac.compare_digest(credentials.username, VALID_USERNAME) and hmac.compare_digest(credentials.password, VALID_PASSWORD)):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized", headers={"WWW-Authenticate": "Basic"})
+    if not VALID_USERNAME or not VALID_PASSWORD:
+        return
+    if not (hmac.compare_digest(credentials.username, VALID_USERNAME) and
+            hmac.compare_digest(credentials.password, VALID_PASSWORD)):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized",
+            headers={"WWW-Authenticate": "Basic"},
+        )
     return credentials
 
 @app.get("/set_targets_form", response_class=HTMLResponse)
 async def set_targets_form(request: Request, credentials: HTTPBasicCredentials = Depends(verify_credentials)):
-    # 現在の targets.json の値を読み込み
     try:
         with open(CONFIG_PATH, "r") as f:
             targets = json.load(f)
-            target_soc = targets.get("target_soc", 90)  # デフォルト値
-            daily_charge_current = targets.get("daily_charge_current", 0)  # デフォルト値
+            target_soc = targets.get("target_soc", 90)
+            daily_charge_current = targets.get("daily_charge_current", 0)
     except Exception as e:
         print(f"Error reading targets.json: {e}")
         target_soc = 90
@@ -335,7 +333,7 @@ async def set_targets_form(request: Request, credentials: HTTPBasicCredentials =
     return templates.TemplateResponse("set_targets.html", {
         "request": request,
         "target_soc": target_soc,
-        "daily_charge_current": daily_charge_current
+        "daily_charge_current": daily_charge_current,
     })
 
 @app.post("/set_targets", response_class=HTMLResponse)
@@ -343,7 +341,7 @@ async def set_targets(
     request: Request,
     target_soc: int = Form(...),
     daily_charge_current: int = Form(...),
-    credentials: HTTPBasicCredentials = Depends(verify_credentials)
+    credentials: HTTPBasicCredentials = Depends(verify_credentials),
 ):
     targets = {"target_soc": target_soc, "daily_charge_current": daily_charge_current}
     try:
@@ -353,14 +351,14 @@ async def set_targets(
             "request": request,
             "message": f"Targets updated: target_soc={target_soc}, daily_charge_current={daily_charge_current}",
             "target_soc": target_soc,
-            "daily_charge_current": daily_charge_current
+            "daily_charge_current": daily_charge_current,
         })
     except Exception as e:
         return templates.TemplateResponse("set_targets.html", {
             "request": request,
             "message": f"Error: {str(e)}",
             "target_soc": target_soc,
-            "daily_charge_current": daily_charge_current
+            "daily_charge_current": daily_charge_current,
         })
 
 if __name__ == "__main__":

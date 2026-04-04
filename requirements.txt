@@ -3,6 +3,7 @@ uvicorn[standard]
 pymodbus
 pyserial
 requests
-influxdb
+influxdb-client
+pyyaml
 jinja2
 python-multipart

@@ -1,17 +1,35 @@
-import requests, yaml
-from datetime import datetime, timezone
+import os
+import time
+import atexit
+import requests
+import yaml
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
+
 import influxdb_client
 from influxdb_client import Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 
-API_URL = "http://influxdb:5004/registers"
-SCHEMA_PATH = "regmap.yaml"
+# Modbus API endpoint (modbus_api container)
+API_URL = "http://modbus_api:5004/registers"
 
+# regmap.yaml lives beside this script in /app
+SCHEMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "regmap.yaml")
+
+# InfluxDB v2 connection — read from environment, fail fast at startup if missing
 INFLUX_URL    = os.environ["INFLUX_URL"]
 INFLUX_TOKEN  = os.environ["INFLUX_TOKEN"]
 INFLUX_ORG    = os.environ["INFLUX_ORG"]
 INFLUX_BUCKET = os.environ["INFLUX_BUCKET"]
+
+# Singleton InfluxDB client — created once and reused every minute to avoid
+# repeated TCP connection overhead.
+_influx_client = influxdb_client.InfluxDBClient(
+    url=INFLUX_URL,
+    token=INFLUX_TOKEN,
+    org=INFLUX_ORG,
+)
+atexit.register(lambda: _influx_client.close())
 
 def fetch_registers() -> Optional[Dict[str, int]]:
     try:
@@ -19,7 +37,8 @@ def fetch_registers() -> Optional[Dict[str, int]]:
         r.raise_for_status()
         data = r.json()
         return data if isinstance(data, dict) else None
-    except Exception:
+    except Exception as e:
+        print(f"Error fetching registers: {e}")
         return None
 
 def load_schema(path: str) -> Dict[str, Any]:
@@ -30,6 +49,8 @@ def now_utc_ns() -> int:
     return int(datetime.now(timezone.utc).timestamp() * 1e9)
 
 def to_signed_16_relaxed(x: int) -> int:
+    """Convert a raw uint16 to a signed int16.
+    Accepts already-negative values (e.g. from a previous call) unchanged."""
     if x < 0:
         return x
     return x - 0x10000 if x >= 0x8000 else x
@@ -38,20 +59,27 @@ def combine_uint32(hi: int, lo: int) -> int:
     return ((hi & 0xFFFF) << 16) | (lo & 0xFFFF)
 
 def combine_auto(reg_key: str, left_val: int, right_val: int) -> int:
-    """
-    キーが 'A-B' のとき:
-      - PowMr(16進 '0x...' で始まる) は [lo, hi] の順に BE 結合
-      - Growatt(10進) は [hi, lo] の順に BE 結合
+    """Combine two 16-bit register values into a 32-bit integer.
+
+    Key naming convention determines byte order:
+      - PowMr keys use hex notation ("0x...") and store values as [lo, hi],
+        so we pass (right=hi, left=lo) to combine_uint32.
+      - Growatt keys use decimal notation ("N-M") and store values as [hi, lo],
+        so we pass (left=hi, right=lo) to combine_uint32.
     """
     if reg_key.startswith("0x"):
+        # PowMr: schema key "0xF034-0xF035" means left=lo, right=hi
         return combine_uint32(right_val, left_val)
     else:
+        # Growatt: schema key "3-4" means left=hi, right=lo
         return combine_uint32(left_val, right_val)
 
 def build_point(ts_ns: int, reg_key: str, meta: Dict[str, Any], value: float, raw_int: int) -> Point:
     p = Point("modbus").time(ts_ns).tag("reg", reg_key)
-    if "name" in meta: p = p.tag("name", str(meta["name"]))
-    if "unit" in meta: p = p.tag("unit", str(meta["unit"]))
+    if "name" in meta:
+        p = p.tag("name", str(meta["name"]))
+    if "unit" in meta:
+        p = p.tag("unit", str(meta["unit"]))
     return p.field("value", float(value)).field("raw", int(raw_int))
 
 def transform_to_points(data: Dict[str, int], schema: Dict[str, Any]) -> List[Point]:
@@ -82,30 +110,32 @@ def transform_to_points(data: Dict[str, int], schema: Dict[str, Any]) -> List[Po
 def write_points(points: List[Point]) -> None:
     if not points:
         return
-    client = influxdb_client.InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
-    try:
-        with client.write_api(write_options=SYNCHRONOUS) as w:
-            w.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=points)
-    finally:
-        client.close()
+    with _influx_client.write_api(write_options=SYNCHRONOUS) as w:
+        w.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=points)
 
-def wait_until_next_minute():
-    """次の1分開始点まで待機"""
+def wait_until_next_minute() -> datetime:
+    """Sleep until the start of the next wall-clock minute."""
     now = datetime.now()
-    next_minute_start = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
-    delay = (next_minute_start - now).total_seconds()
+    next_minute = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    delay = (next_minute - now).total_seconds()
     if delay > 0:
         time.sleep(delay)
-    return next_minute_start
+    return next_minute
 
-# メインループ
+# ── Main loop ────────────────────────────────────────────────────────────────
+
 mapcfg = load_schema(SCHEMA_PATH)
 print("Starting DB writer script...")
-next_minute_start = wait_until_next_minute()
+wait_until_next_minute()
+
 while True:
     print(f"Processing at {datetime.now()}")
     register_data = fetch_registers()
-    write_points(transform_to_points(register_data, mapcfg))
-
-    # 次の1分まで待機
-    next_minute_start = wait_until_next_minute()
+    if register_data is not None:
+        try:
+            write_points(transform_to_points(register_data, mapcfg))
+        except Exception as e:
+            print(f"Error writing to InfluxDB: {e}")
+    else:
+        print("No data to write (fetch failed)")
+    wait_until_next_minute()
