@@ -128,7 +128,7 @@
               },
               {
                 "id": "max",
-                "value": 1000
+                "value": 800
               },
               {
                 "id": "custom.cellOptions",
@@ -190,7 +190,7 @@
               },
               {
                 "id": "max",
-                "value": 500
+                "value": 1000
               },
               {
                 "id": "custom.cellOptions",
