@@ -1,23 +1,20 @@
 {
-  "__inputs": [],
-  "__requires": [
-    {
-      "type": "grafana",
-      "id": "grafana",
-      "name": "Grafana",
-      "version": "10.4.3"
-    },
-    {
-      "type": "datasource",
-      "id": "influxdb",
-      "name": "InfluxDB",
-      "version": "1.0.0"
-    }
-  ],
   "annotations": {
-    "list": []
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
   },
-  "description": "Solar inverter monitoring \u2014 PowMr + Growatt + battery state",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -25,947 +22,1042 @@
   "links": [],
   "panels": [
     {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 0
-      },
-      "id": 100,
-      "title": "Battery",
-      "type": "row"
-    },
-    {
       "datasource": {
         "type": "influxdb",
-        "uid": "${DS_INFLUXDB}"
+        "uid": "srne-influxdb"
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "mappings": [],
-          "max": 100,
-          "min": 0,
-          "unit": "percent",
           "thresholds": {
             "mode": "absolute",
             "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
               {
                 "color": "red",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 20
-              },
-              {
-                "color": "green",
-                "value": 40
+                "value": 80
               }
             ]
-          }
-        }
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 0,
-        "y": 1
-      },
-      "id": 1,
-      "options": {
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"battery_soc\" and r._field == \"value\")\n  |> last()",
-          "refId": "A"
-        }
-      ],
-      "title": "Battery SOC",
-      "type": "gauge"
-    },
-    {
-      "datasource": {
-        "type": "influxdb",
-        "uid": "${DS_INFLUXDB}"
-      },
-      "fieldConfig": {
-        "defaults": {
           "color": {
             "mode": "palette-classic"
           },
-          "unit": "volt",
-          "decimals": 1
-        }
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 4,
-        "y": 1
-      },
-      "id": 2,
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "area"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"battery_voltage_powmr\" and r._field == \"value\")\n  |> last()",
-          "refId": "A"
-        }
-      ],
-      "title": "Battery Voltage",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "influxdb",
-        "uid": "${DS_INFLUXDB}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "unit": "amp",
-          "decimals": 1,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              },
-              {
-                "color": "green",
-                "value": 0
-              }
-            ]
-          }
-        }
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 8,
-        "y": 1
-      },
-      "id": 3,
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "value",
-        "graphMode": "area"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"battery_current_powmr\" and r._field == \"value\")\n  |> last()",
-          "refId": "A"
-        }
-      ],
-      "title": "Battery Current (+ = charging)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "influxdb",
-        "uid": "${DS_INFLUXDB}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "kwh",
-          "decimals": 2
+          "unit": "watt"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 12,
-        "y": 1
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
       },
-      "id": 4,
+      "id": 1,
       "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "colorMode": "value",
-        "graphMode": "none"
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
       },
       "targets": [
         {
           "datasource": {
             "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
+            "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"batt_charge_daily\" and r._field == \"value\")\n  |> last()",
+          "query": "data =\n  from(bucket: v.defaultBucket)\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n    |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n    |> filter(fn: (r) => r.name =~ /pv[1-4]_power/)\n    |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n    |> keep(columns: [\"_time\",\"_value\",\"name\"])\n\nwide =\n  data\n    |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n\ntotal =\n  wide\n    |> map(fn: (r) => ({\n        _time: r._time,\n        _value:\n          float(v: (if exists r.pv1_power then r.pv1_power else 0.0)) +\n          float(v: (if exists r.pv2_power then r.pv2_power else 0.0)) +\n          float(v: (if exists r.pv3_power then r.pv3_power else 0.0)) +\n          float(v: (if exists r.pv4_power then r.pv4_power else 0.0)),\n        name: \"pv_total_power\"\n    }))\n    |> keep(columns: [\"_time\",\"_value\",\"name\"])\n\nunion(tables: [data, total])\n",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"batt_discharge_daily\" and r._field == \"value\")\n  |> last()",
-          "refId": "B"
         }
       ],
-      "title": "Today \u2014 Batt Charge / Discharge (kWh)",
-      "type": "stat"
+      "title": "PV Power",
+      "type": "timeseries"
     },
     {
       "datasource": {
         "type": "influxdb",
-        "uid": "${DS_INFLUXDB}"
+        "uid": "srne-influxdb"
       },
       "fieldConfig": {
         "defaults": {
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
           "color": {
             "mode": "palette-classic"
           },
-          "unit": "celsius",
-          "decimals": 1
-        }
+          "unit": "watt"
+        },
+        "overrides": []
       },
       "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 16,
-        "y": 1
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
       },
-      "id": 5,
+      "id": 2,
       "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "colorMode": "value",
-        "graphMode": "area"
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
       },
       "targets": [
         {
           "datasource": {
             "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
+            "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"temp_controller\" and r._field == \"value\")\n  |> last()",
+          "query": "data =\n  from(bucket: v.defaultBucket)\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n    |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n    |> filter(fn: (r) => r.name =~ /load_active_l[12]/)\n    |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n    |> keep(columns: [\"_time\",\"_value\",\"name\"])\n\nwide =\n  data\n    |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n\ntotal =\n  wide\n    |> map(fn: (r) => ({\n        _time: r._time,\n        _value:\n          float(v: (if exists r.load_active_l1 then r.load_active_l1 else 0.0)) +\n          float(v: (if exists r.load_active_l2 then r.load_active_l2 else 0.0)),\n        name: \"load_active_total\"\n    }))\n    |> keep(columns: [\"_time\",\"_value\",\"name\"])\n\nunion(tables: [data, total])\n",
           "refId": "A"
         }
       ],
-      "title": "Controller Temperature",
-      "type": "stat"
+      "title": "Load Active Power",
+      "type": "timeseries"
     },
     {
       "datasource": {
         "type": "influxdb",
-        "uid": "${DS_INFLUXDB}"
+        "uid": "srne-influxdb"
       },
       "fieldConfig": {
         "defaults": {
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "data =\n  from(bucket: v.defaultBucket)\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n    |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n    |> filter(fn: (r) => r.name =~ /grid_l[12]/)\n    |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n    |> keep(columns: [\"_time\",\"_value\",\"name\"])\n\nwide =\n  data\n    |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n\ntotal =\n  wide\n    |> map(fn: (r) => ({\n        _time: r._time,\n        _value:\n          float(v: (if exists r.grid_l1 then r.grid_l1 else 0.0)) +\n          float(v: (if exists r.grid_l2 then r.grid_l2 else 0.0)),\n        name: \"grid_total\"\n    }))\n    |> keep(columns: [\"_time\",\"_value\",\"name\"])\n\nunion(tables: [data, total])\n",
+          "refId": "A"
+        }
+      ],
+      "title": "Grid Power",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "srne-influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
           "color": {
             "mode": "palette-classic"
           },
           "unit": "percent",
-          "min": 0,
-          "max": 100
-        }
+          "max": 100,
+          "min": 0
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
-        "w": 24,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"battery_soc\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> keep(columns: [\"_time\",\"_value\",\"name\"])\n",
+          "refId": "A"
+        }
+      ],
+      "title": "Battery SOC",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "srne-influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 0
+              }
+            ]
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "watt"
+        },
+        "overrides": [
+          {
+            "__systemRef": "hideSeriesFrom",
+            "matcher": {
+              "id": "byNames",
+              "options": {
+                "mode": "exclude",
+                "names": [
+                  "battery_power_total"
+                ],
+                "prefix": "All except:",
+                "readOnly": true
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
         "x": 0,
-        "y": 7
+        "y": 16
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "common =\n  from(bucket: v.defaultBucket)\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n    |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n    |> filter(fn: (r) =>\n      r.name =~ /battery_(voltage|current)_powmr/ or\n      r.name =~ /battery_voltage_growatt/ or\n      r.name =~ /battery_current_growatt_(charge|draw)/\n    )\n    |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n    |> group()\n\npivoted =\n  common\n    |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n\np_powmr =\n  pivoted\n    |> filter(fn: (r) => exists r.battery_voltage_powmr and exists r.battery_current_powmr)\n    |> map(fn: (r) => ({\n        r with\n        _value: - float(v: r.battery_voltage_powmr) * float(v: r.battery_current_powmr),\n        name: \"battery_power_powmr\",\n        _measurement: \"modbus\",\n        _field: \"value\"\n    }))\n    |> keep(columns: [\"_time\",\"_start\",\"_stop\",\"_value\",\"_measurement\",\"_field\",\"name\"])\n    |> group(columns: [\"name\"], mode: \"by\")\n\np_growatt =\n  pivoted\n    |> filter(fn: (r) =>\n      exists r.battery_voltage_growatt and\n      exists r.battery_current_growatt_charge and\n      exists r.battery_current_growatt_draw\n    )\n    |> map(fn: (r) => ({\n        r with\n        _value: float(v: r.battery_voltage_growatt) *\n                ( float(v: r.battery_current_growatt_charge)\n                - float(v: r.battery_current_growatt_draw) ),\n        name: \"battery_power_growatt\",\n        _measurement: \"modbus\",\n        _field: \"value\"\n    }))\n    |> keep(columns: [\"_time\",\"_start\",\"_stop\",\"_value\",\"_measurement\",\"_field\",\"name\"])\n    |> group(columns: [\"name\"], mode: \"by\")\n\np_total =\n  union(tables: [p_powmr, p_growatt])\n    |> group(columns: [\"_time\",\"_start\",\"_stop\"], mode: \"by\")\n    |> sum(column: \"_value\")\n    |> map(fn: (r) => ({\n        r with\n        name: \"battery_power_total\",\n        _measurement: \"modbus\",\n        _field: \"value\"\n    }))\n    |> group(columns: [\"name\"], mode: \"by\")\n\nunion(tables: [p_powmr, p_growatt, p_total])\n",
+          "refId": "A"
+        }
+      ],
+      "title": "Battery Power",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "srne-influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "kwatth"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "raw =\n  from(bucket: v.defaultBucket)\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n    |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n    |> filter(fn: (r) => r.name =~ /_daily/)\n    |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n    |> keep(columns: [\"_time\",\"_value\",\"name\"])\n\ndata =\n  raw\n    |> duplicate(column: \"name\", as: \"_field\")\n    |> set(key: \"_measurement\", value: \"modbus\")\n\npv_daily_sum =\n  raw\n    |> filter(fn: (r) => r.name == \"pv_powmr_daily\" or r.name == \"pv3_daily\")\n    |> group()\n    |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n    |> map(fn: (r) => ({\n        _time: r._time,\n        _value: (if exists r.pv_powmr_daily then r.pv_powmr_daily else 0.0)\n              + (if exists r.pv3_daily then r.pv3_daily else 0.0),\n        _field: \"pv_daily_sum\",\n        _measurement: \"calc\"\n      }))\n\ngrid_daily_sum =\n  raw\n    |> filter(fn: (r) => r.name == \"grid_to_batt_daily\" or r.name == \"grid_to_load_daily\")\n    |> group()\n    |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n    |> map(fn: (r) => ({\n        _time: r._time,\n        _value: (if exists r.grid_to_batt_daily then r.grid_to_batt_daily else 0.0)\n              + (if exists r.grid_to_load_daily then r.grid_to_load_daily else 0.0),\n        _field: \"grid_daily_sum\",\n        _measurement: \"calc\"\n      }))\n\nunion(tables: [data, pv_daily_sum, grid_daily_sum])\n  |> group(columns: [\"_measurement\",\"_field\"])\n  |> keep(columns: [\"_time\",\"_value\",\"_field\",\"_measurement\"])\n",
+          "refId": "A"
+        }
+      ],
+      "title": "Daily (kWh)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "srne-influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "kwatth"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "raw =\n  from(bucket: v.defaultBucket)\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n    |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n    |> filter(fn: (r) => r.name =~ /_cumulative/)\n    |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n    |> keep(columns: [\"_time\",\"_value\",\"name\"])\n\ndata =\n  raw\n    |> duplicate(column: \"name\", as: \"_field\")\n    |> set(key: \"_measurement\", value: \"modbus\")\n\npv_cumulative_sum =\n  raw\n    |> filter(fn: (r) => r.name == \"pv_cumulative\" or r.name == \"pv3_cumulative\")\n    |> group()\n    |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n    |> map(fn: (r) => ({\n        _time: r._time,\n        _value: (if exists r.pv_cumulative then r.pv_cumulative else 0.0)\n              + (if exists r.pv3_cumulative then r.pv3_cumulative else 0.0),\n        _field: \"pv_cumulative_sum\",\n        _measurement: \"calc\"\n      }))\n\nunion(tables: [data, pv_cumulative_sum])\n  |> group(columns: [\"_measurement\",\"_field\"])\n  |> keep(columns: [\"_time\",\"_value\",\"_field\",\"_measurement\"])\n",
+          "refId": "A"
+        }
+      ],
+      "title": "Cumulative (kWh)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "srne-influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "volt"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
       },
       "id": 6,
       "options": {
         "legend": {
           "calcs": [],
           "displayMode": "list",
-          "placement": "bottom"
+          "placement": "bottom",
+          "showLegend": true
         },
         "tooltip": {
-          "mode": "single"
+          "mode": "multi",
+          "sort": "none"
         }
       },
       "targets": [
         {
           "datasource": {
             "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
+            "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"battery_soc\" and r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /pv[1-4]_voltage/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> keep(columns: [\"_time\",\"_value\",\"name\"])",
           "refId": "A"
         }
       ],
-      "title": "Battery SOC History",
+      "title": "PV Voltage",
       "type": "timeseries"
-    },
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 15
-      },
-      "id": 101,
-      "title": "Solar Production",
-      "type": "row"
     },
     {
       "datasource": {
         "type": "influxdb",
-        "uid": "${DS_INFLUXDB}"
+        "uid": "srne-influxdb"
       },
       "fieldConfig": {
         "defaults": {
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
           "color": {
             "mode": "palette-classic"
           },
-          "unit": "watt"
+          "unit": "volt"
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "PV1 (PowMr)"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "yellow",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "PV2 (PowMr)"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "orange",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "PV3 (Growatt)"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "super-light-yellow",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "PV4 (Growatt)"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "light-orange",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
-        "w": 16,
+        "w": 12,
         "x": 0,
-        "y": 16
+        "y": 32
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /battery_voltage_(growatt|powmr)/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> keep(columns: [\"_time\",\"_value\",\"name\"])",
+          "refId": "A"
+        }
+      ],
+      "title": "Battery Voltage",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "srne-influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "amp"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
       },
       "id": 7,
       "options": {
         "legend": {
-          "calcs": [
-            "mean",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "right"
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
         },
         "tooltip": {
-          "mode": "multi"
+          "mode": "multi",
+          "sort": "none"
         }
       },
       "targets": [
         {
           "datasource": {
             "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
+            "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"pv1_power\" and r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> set(key: \"name\", value: \"PV1 (PowMr)\")",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /pv[1-4]_current/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> keep(columns: [\"_time\",\"_value\",\"name\"])",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"pv2_power\" and r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> set(key: \"name\", value: \"PV2 (PowMr)\")",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"pv3_power\" and r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> set(key: \"name\", value: \"PV3 (Growatt)\")",
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"pv4_power\" and r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> set(key: \"name\", value: \"PV4 (Growatt)\")",
-          "refId": "D"
         }
       ],
-      "title": "PV Power \u2014 All Strings",
+      "title": "PV Current",
       "type": "timeseries"
     },
     {
       "datasource": {
         "type": "influxdb",
-        "uid": "${DS_INFLUXDB}"
+        "uid": "srne-influxdb"
       },
       "fieldConfig": {
         "defaults": {
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
           "color": {
             "mode": "palette-classic"
           },
-          "unit": "kwh",
-          "decimals": 2
-        }
+          "unit": "amp"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 16
-      },
-      "id": 8,
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "value_and_name"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"pv_powmr_daily\" and r._field == \"value\")\n  |> last()",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"pv3_daily\" and r._field == \"value\")\n  |> last()",
-          "refId": "B"
-        }
-      ],
-      "title": "Today \u2014 PV Generation (kWh)",
-      "type": "stat"
-    },
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 24
-      },
-      "id": 102,
-      "title": "Load and Grid",
-      "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "influxdb",
-        "uid": "${DS_INFLUXDB}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "watt"
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Load L1"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "blue",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Load L2"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "light-blue",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Grid L1"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "red",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Grid L2"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "orange",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 16,
-        "x": 0,
-        "y": 25
+        "w": 12,
+        "x": 12,
+        "y": 40
       },
       "id": 9,
       "options": {
         "legend": {
-          "calcs": [
-            "mean",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "right"
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
         },
         "tooltip": {
-          "mode": "multi"
+          "mode": "multi",
+          "sort": "none"
         }
       },
       "targets": [
         {
           "datasource": {
             "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
+            "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"load_active_l1\" and r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> set(key: \"name\", value: \"Load L1\")",
+          "query": "common =\n  from(bucket: v.defaultBucket)\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n    |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n    |> filter(fn: (r) =>\n      r.name =~ /battery_current_powmr/ or\n      r.name =~ /battery_current_growatt_(charge|draw)/\n    )\n    |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n    |> group()\n\npivoted =\n  common\n    |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n\ncurr_powmr =\n  pivoted\n    |> filter(fn: (r) => exists r.battery_current_powmr)\n    |> map(fn: (r) => ({\n        r with\n        _value: - float(v: r.battery_current_powmr),\n        name: \"battery_current_powmr\",\n        _measurement: \"modbus\",\n        _field: \"value\"\n    }))\n    |> keep(columns: [\"_time\",\"_start\",\"_stop\",\"_value\",\"_measurement\",\"_field\",\"name\"])\n    |> group(columns: [\"name\"], mode: \"by\")\n\ncurr_growatt =\n  pivoted\n    |> filter(fn: (r) =>\n      exists r.battery_current_growatt_charge and\n      exists r.battery_current_growatt_draw\n    )\n    |> map(fn: (r) => ({\n        r with\n        _value: float(v: r.battery_current_growatt_charge) - float(v: r.battery_current_growatt_draw),\n        name: \"battery_current_growatt\",\n        _measurement: \"modbus\",\n        _field: \"value\"\n    }))\n    |> keep(columns: [\"_time\",\"_start\",\"_stop\",\"_value\",\"_measurement\",\"_field\",\"name\"])\n    |> group(columns: [\"name\"], mode: \"by\")\n\ncurr_total =\n  union(tables: [curr_powmr, curr_growatt])\n    |> group(columns: [\"_time\",\"_start\",\"_stop\"], mode: \"by\")\n    |> sum(column: \"_value\")\n    |> map(fn: (r) => ({\n        r with\n        name: \"battery_current_total\",\n        _measurement: \"modbus\",\n        _field: \"value\"\n    }))\n    |> group(columns: [\"name\"], mode: \"by\")\n\nunion(tables: [curr_powmr, curr_growatt, curr_total])\n",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"load_active_l2\" and r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> set(key: \"name\", value: \"Load L2\")",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"grid_l1\" and r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> set(key: \"name\", value: \"Grid L1\")",
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"grid_l2\" and r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> set(key: \"name\", value: \"Grid L2\")",
-          "refId": "D"
         }
       ],
-      "title": "Load and Grid Power",
+      "title": "Battery Current",
       "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "influxdb",
-        "uid": "${DS_INFLUXDB}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "kwh",
-          "decimals": 2
-        }
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 25
-      },
-      "id": 10,
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "value_and_name"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"load_daily\" and r._field == \"value\")\n  |> last()",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"grid_to_load_daily\" and r._field == \"value\")\n  |> last()",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"grid_to_batt_daily\" and r._field == \"value\")\n  |> last()",
-          "refId": "C"
-        }
-      ],
-      "title": "Today \u2014 Load / Grid to Load / Grid to Batt (kWh)",
-      "type": "stat"
-    },
-    {
-      "collapsed": true,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 33
-      },
-      "id": 103,
-      "title": "Grid and Inverter Quality",
-      "type": "row",
-      "panels": [
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "unit": "volt",
-              "decimals": 1,
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "red",
-                    "value": null
-                  },
-                  {
-                    "color": "green",
-                    "value": 100
-                  },
-                  {
-                    "color": "red",
-                    "value": 130
-                  }
-                ]
-              }
-            }
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 0,
-            "y": 34
-          },
-          "id": 11,
-          "options": {
-            "legend": {
-              "calcs": [],
-              "displayMode": "list",
-              "placement": "bottom"
-            },
-            "tooltip": {
-              "mode": "multi"
-            }
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "influxdb",
-                "uid": "${DS_INFLUXDB}"
-              },
-              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"grid_voltage_l1\" and r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> set(key: \"name\", value: \"Grid L1\")",
-              "refId": "A"
-            },
-            {
-              "datasource": {
-                "type": "influxdb",
-                "uid": "${DS_INFLUXDB}"
-              },
-              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"grid_voltage_l2\" and r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> set(key: \"name\", value: \"Grid L2\")",
-              "refId": "B"
-            }
-          ],
-          "title": "Grid Voltage (L1 / L2)",
-          "type": "timeseries"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "unit": "hertz",
-              "decimals": 2,
-              "min": 59,
-              "max": 61
-            }
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 12,
-            "y": 34
-          },
-          "id": 12,
-          "options": {
-            "legend": {
-              "calcs": [],
-              "displayMode": "list",
-              "placement": "bottom"
-            },
-            "tooltip": {
-              "mode": "multi"
-            }
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "influxdb",
-                "uid": "${DS_INFLUXDB}"
-              },
-              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"grid_frequency\" and r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> set(key: \"name\", value: \"Grid\")",
-              "refId": "A"
-            },
-            {
-              "datasource": {
-                "type": "influxdb",
-                "uid": "${DS_INFLUXDB}"
-              },
-              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"inverter_frequency\" and r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> set(key: \"name\", value: \"Inverter\")",
-              "refId": "B"
-            }
-          ],
-          "title": "Frequency \u2014 Grid vs Inverter",
-          "type": "timeseries"
-        }
-      ]
-    },
-    {
-      "collapsed": true,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 42
-      },
-      "id": 104,
-      "title": "Cumulative Totals",
-      "type": "row",
-      "panels": [
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "unit": "kwh",
-              "decimals": 1
-            }
-          },
-          "gridPos": {
-            "h": 6,
-            "w": 24,
-            "x": 0,
-            "y": 43
-          },
-          "id": 13,
-          "options": {
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ]
-            },
-            "colorMode": "value",
-            "graphMode": "none",
-            "textMode": "value_and_name"
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "influxdb",
-                "uid": "${DS_INFLUXDB}"
-              },
-              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"pv_cumulative\" and r._field == \"value\")\n  |> last()",
-              "refId": "A"
-            },
-            {
-              "datasource": {
-                "type": "influxdb",
-                "uid": "${DS_INFLUXDB}"
-              },
-              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"load_cumulative\" and r._field == \"value\")\n  |> last()",
-              "refId": "B"
-            },
-            {
-              "datasource": {
-                "type": "influxdb",
-                "uid": "${DS_INFLUXDB}"
-              },
-              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"batt_charge_cumulative\" and r._field == \"value\")\n  |> last()",
-              "refId": "C"
-            },
-            {
-              "datasource": {
-                "type": "influxdb",
-                "uid": "${DS_INFLUXDB}"
-              },
-              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"batt_discharge_cumulative\" and r._field == \"value\")\n  |> last()",
-              "refId": "D"
-            },
-            {
-              "datasource": {
-                "type": "influxdb",
-                "uid": "${DS_INFLUXDB}"
-              },
-              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r.name == \"pv3_cumulative\" and r._field == \"value\")\n  |> last()",
-              "refId": "E"
-            }
-          ],
-          "title": "All-time Totals \u2014 PV Gen / Load / Batt Charge / Batt Discharge / PV3",
-          "type": "stat"
-        }
-      ]
     }
   ],
   "refresh": "1m",
@@ -976,19 +1068,7 @@
     "battery"
   ],
   "templating": {
-    "list": [
-      {
-        "current": {},
-        "hide": 0,
-        "includeAll": false,
-        "name": "DS_INFLUXDB",
-        "options": [],
-        "query": "influxdb",
-        "refresh": 1,
-        "type": "datasource",
-        "label": "InfluxDB datasource"
-      }
-    ]
+    "list": []
   },
   "time": {
     "from": "now-24h",
@@ -998,5 +1078,6 @@
   "timezone": "browser",
   "title": "Solar Monitor",
   "uid": "solar-monitor-v1",
-  "version": 1
+  "version": 1,
+  "weekStart": ""
 }
