@@ -292,21 +292,6 @@
                 }
               }
             ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "PV4 (Growatt)"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#5794F2",
-                  "mode": "fixed"
-                }
-              }
-            ]
           }
         ]
       },
@@ -335,7 +320,7 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /pv[1-4]_power/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV1 (PowMr)\":   if exists r.pv1_power then r.pv1_power else 0.0,\n      \"PV2 (PowMr)\":   if exists r.pv2_power then r.pv2_power else 0.0,\n      \"PV3 (Growatt)\": if exists r.pv3_power then r.pv3_power else 0.0,\n      \"PV4 (Growatt)\": if exists r.pv4_power then r.pv4_power else 0.0\n  }))",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /pv[1-4]_power/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV1 (PowMr)\":   if exists r.pv1_power then r.pv1_power else 0.0,\n      \"PV2 (PowMr)\":   if exists r.pv2_power then r.pv2_power else 0.0,\n      \"PV3 (Growatt)\": if exists r.pv3_power then r.pv3_power else 0.0\n  }))",
           "refId": "A"
         }
       ],
@@ -442,21 +427,6 @@
                 }
               }
             ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "PV4 (Growatt)"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#5794F2",
-                  "mode": "fixed"
-                }
-              }
-            ]
           }
         ]
       },
@@ -485,7 +455,7 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /^pv[1-4]_voltage$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV1 (PowMr)\":   if exists r.pv1_voltage then r.pv1_voltage else 0.0,\n      \"PV2 (PowMr)\":   if exists r.pv2_voltage then r.pv2_voltage else 0.0,\n      \"PV3 (Growatt)\": if exists r.pv3_voltage then r.pv3_voltage else 0.0,\n      \"PV4 (Growatt)\": if exists r.pv4_voltage then r.pv4_voltage else 0.0\n  }))",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /^pv[1-4]_voltage$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV1 (PowMr)\":   if exists r.pv1_voltage then r.pv1_voltage else 0.0,\n      \"PV2 (PowMr)\":   if exists r.pv2_voltage then r.pv2_voltage else 0.0,\n      \"PV3 (Growatt)\": if exists r.pv3_voltage then r.pv3_voltage else 0.0\n  }))",
           "refId": "A"
         }
       ],
@@ -592,21 +562,6 @@
                 }
               }
             ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "PV4 (Growatt)"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#5794F2",
-                  "mode": "fixed"
-                }
-              }
-            ]
           }
         ]
       },
@@ -635,7 +590,7 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /^pv[1-4]_current$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV1 (PowMr)\":   if exists r.pv1_current then r.pv1_current else 0.0,\n      \"PV2 (PowMr)\":   if exists r.pv2_current then r.pv2_current else 0.0,\n      \"PV3 (Growatt)\": if exists r.pv3_current then r.pv3_current else 0.0,\n      \"PV4 (Growatt)\": if exists r.pv4_current then r.pv4_current else 0.0\n  }))",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /^pv[1-4]_current$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV1 (PowMr)\":   if exists r.pv1_current then r.pv1_current else 0.0,\n      \"PV2 (PowMr)\":   if exists r.pv2_current then r.pv2_current else 0.0,\n      \"PV3 (Growatt)\": if exists r.pv3_current then r.pv3_current else 0.0\n  }))",
           "refId": "A"
         }
       ],
@@ -1334,7 +1289,8 @@
             ]
           },
           "unit": "percent",
-          "min": 0
+          "min": 0,
+          "max": 100
         },
         "overrides": [
           {

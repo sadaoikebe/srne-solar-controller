@@ -248,7 +248,7 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\" and r.name == \"battery_current_powmr\")\n  |> last()\n  |> keep(columns: [\"_time\",\"_value\"])",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\" and r.name == \"battery_current_powmr\")\n  |> last()\n  |> map(fn: (r) => ({r with _value: -r._value}))\n  |> keep(columns: [\"_time\",\"_value\"])",
           "refId": "A"
         }
       ],
