@@ -60,8 +60,137 @@
         "y": 0
       },
       "id": 1,
-      "title": "\u2600\ufe0f  Solar Production",
+      "title": "☀️  Solar Production",
       "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "srne-influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "lineWidth": 2,
+            "lineInterpolation": "linear",
+            "showPoints": "never",
+            "drawStyle": "line",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "watt",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "PV Total"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#F2495C",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "PV Total"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "PV Total"
+            },
+            "properties": [
+              {
+                "id": "custom.fillOpacity",
+                "value": 4
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
+      "id": 20,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /pv[1-4]_power/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV Total\":\n        (if exists r.pv1_power then r.pv1_power else 0.0) +\n        (if exists r.pv2_power then r.pv2_power else 0.0) +\n        (if exists r.pv3_power then r.pv3_power else 0.0) +\n        (if exists r.pv4_power then r.pv4_power else 0.0)\n  }))",
+          "refId": "A"
+        }
+      ],
+      "title": "PV Power — Total",
+      "type": "timeseries"
     },
     {
       "datasource": {
@@ -178,63 +307,20 @@
                 }
               }
             ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "PV Total"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#F2495C",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "PV Total"
-            },
-            "properties": [
-              {
-                "id": "custom.lineWidth",
-                "value": 3
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "PV Total"
-            },
-            "properties": [
-              {
-                "id": "custom.fillOpacity",
-                "value": 4
-              }
-            ]
           }
         ]
       },
       "gridPos": {
-        "h": 9,
-        "w": 24,
-        "x": 0,
+        "h": 8,
+        "w": 12,
+        "x": 12,
         "y": 1
       },
       "id": 2,
       "options": {
         "legend": {
-          "calcs": [
-            "lastNotNull",
-            "max",
-            "mean"
-          ],
-          "displayMode": "table",
+          "calcs": [],
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
@@ -249,11 +335,11 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /pv[1-4]_power/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV1 (PowMr)\":  if exists r.pv1_power  then r.pv1_power  else 0.0,\n      \"PV2 (PowMr)\":  if exists r.pv2_power  then r.pv2_power  else 0.0,\n      \"PV3 (Growatt)\": if exists r.pv3_power then r.pv3_power  else 0.0,\n      \"PV4 (Growatt)\": if exists r.pv4_power then r.pv4_power  else 0.0,\n      \"PV Total\":\n        (if exists r.pv1_power then r.pv1_power else 0.0) +\n        (if exists r.pv2_power then r.pv2_power else 0.0) +\n        (if exists r.pv3_power then r.pv3_power else 0.0) +\n        (if exists r.pv4_power then r.pv4_power else 0.0)\n  }))\n  |> drop(columns: [\"pv1_power\",\"pv2_power\",\"pv3_power\",\"pv4_power\"])",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /pv[1-4]_power/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV1 (PowMr)\":   if exists r.pv1_power then r.pv1_power else 0.0,\n      \"PV2 (PowMr)\":   if exists r.pv2_power then r.pv2_power else 0.0,\n      \"PV3 (Growatt)\": if exists r.pv3_power then r.pv3_power else 0.0,\n      \"PV4 (Growatt)\": if exists r.pv4_power then r.pv4_power else 0.0\n  }))",
           "refId": "A"
         }
       ],
-      "title": "PV Power \u2014 All Strings + Total",
+      "title": "PV Power — All Strings",
       "type": "timeseries"
     },
     {
@@ -375,20 +461,16 @@
         ]
       },
       "gridPos": {
-        "h": 7,
+        "h": 8,
         "w": 12,
         "x": 0,
-        "y": 10
+        "y": 9
       },
       "id": 3,
       "options": {
         "legend": {
-          "calcs": [
-            "lastNotNull",
-            "max",
-            "mean"
-          ],
-          "displayMode": "table",
+          "calcs": [],
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
@@ -407,7 +489,7 @@
           "refId": "A"
         }
       ],
-      "title": "PV Voltage \u2014 All Strings",
+      "title": "PV Voltage — All Strings",
       "type": "timeseries"
     },
     {
@@ -529,20 +611,16 @@
         ]
       },
       "gridPos": {
-        "h": 7,
+        "h": 8,
         "w": 12,
         "x": 12,
-        "y": 10
+        "y": 9
       },
       "id": 4,
       "options": {
         "legend": {
-          "calcs": [
-            "lastNotNull",
-            "max",
-            "mean"
-          ],
-          "displayMode": "table",
+          "calcs": [],
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
@@ -561,7 +639,7 @@
           "refId": "A"
         }
       ],
-      "title": "PV Current \u2014 All Strings",
+      "title": "PV Current — All Strings",
       "type": "timeseries"
     },
     {
@@ -573,7 +651,7 @@
         "y": 17
       },
       "id": 5,
-      "title": "\ud83c\udfe0  Load & Grid",
+      "title": "🏠  Load & Grid",
       "type": "row"
     },
     {
@@ -700,12 +778,8 @@
       "id": 6,
       "options": {
         "legend": {
-          "calcs": [
-            "lastNotNull",
-            "max",
-            "mean"
-          ],
-          "displayMode": "table",
+          "calcs": [],
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
@@ -724,7 +798,7 @@
           "refId": "A"
         }
       ],
-      "title": "Load Power \u2014 L1 / L2 / Total",
+      "title": "Load Power — L1 / L2 / Total",
       "type": "timeseries"
     },
     {
@@ -850,12 +924,8 @@
       "id": 7,
       "options": {
         "legend": {
-          "calcs": [
-            "lastNotNull",
-            "max",
-            "mean"
-          ],
-          "displayMode": "table",
+          "calcs": [],
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
@@ -874,7 +944,7 @@
           "refId": "A"
         }
       ],
-      "title": "Grid Power \u2014 L1 / L2 / Total  (+ = import)",
+      "title": "Grid Power — L1 / L2 / Total  (+ = import)",
       "type": "timeseries"
     },
     {
@@ -1031,7 +1101,7 @@
         ]
       },
       "gridPos": {
-        "h": 7,
+        "h": 8,
         "w": 12,
         "x": 0,
         "y": 26
@@ -1039,12 +1109,8 @@
       "id": 8,
       "options": {
         "legend": {
-          "calcs": [
-            "lastNotNull",
-            "max",
-            "mean"
-          ],
-          "displayMode": "table",
+          "calcs": [],
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
@@ -1063,7 +1129,7 @@
           "refId": "A"
         }
       ],
-      "title": "Grid Voltage \u2014 Grid vs Inverter",
+      "title": "Grid Voltage — Grid vs Inverter",
       "type": "timeseries"
     },
     {
@@ -1172,7 +1238,7 @@
         ]
       },
       "gridPos": {
-        "h": 7,
+        "h": 8,
         "w": 12,
         "x": 12,
         "y": 26
@@ -1180,12 +1246,8 @@
       "id": 9,
       "options": {
         "legend": {
-          "calcs": [
-            "lastNotNull",
-            "max",
-            "mean"
-          ],
-          "displayMode": "table",
+          "calcs": [],
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
@@ -1204,7 +1266,7 @@
           "refId": "A"
         }
       ],
-      "title": "Frequency \u2014 Grid vs Inverter",
+      "title": "Frequency — Grid vs Inverter",
       "type": "timeseries"
     },
     {
@@ -1213,10 +1275,10 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 33
+        "y": 34
       },
       "id": 10,
-      "title": "\ud83d\udd0b  Battery",
+      "title": "🔋  Battery",
       "type": "row"
     },
     {
@@ -1305,20 +1367,16 @@
         ]
       },
       "gridPos": {
-        "h": 7,
-        "w": 8,
+        "h": 8,
+        "w": 12,
         "x": 0,
-        "y": 34
+        "y": 35
       },
       "id": 11,
       "options": {
         "legend": {
-          "calcs": [
-            "lastNotNull",
-            "max",
-            "mean"
-          ],
-          "displayMode": "table",
+          "calcs": [],
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
@@ -1333,7 +1391,7 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\" and r.name == \"battery_soc\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> rename(columns: {\"_value\": \"SOC (%)\"})\n  |> drop(columns: [\"name\",\"reg\",\"unit\",\"_measurement\",\"_field\"])",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\" and r.name == \"battery_soc\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, \"SOC (%)\": r._value}))",
           "refId": "A"
         }
       ],
@@ -1428,20 +1486,16 @@
         ]
       },
       "gridPos": {
-        "h": 7,
-        "w": 8,
-        "x": 8,
-        "y": 34
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 43
       },
       "id": 12,
       "options": {
         "legend": {
-          "calcs": [
-            "lastNotNull",
-            "max",
-            "mean"
-          ],
-          "displayMode": "table",
+          "calcs": [],
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
@@ -1460,7 +1514,7 @@
           "refId": "A"
         }
       ],
-      "title": "Battery Voltage \u2014 PowMr / Growatt",
+      "title": "Battery Voltage — PowMr / Growatt",
       "type": "timeseries"
     },
     {
@@ -1578,20 +1632,16 @@
         ]
       },
       "gridPos": {
-        "h": 7,
-        "w": 8,
-        "x": 16,
-        "y": 34
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 43
       },
       "id": 13,
       "options": {
         "legend": {
-          "calcs": [
-            "lastNotNull",
-            "max",
-            "mean"
-          ],
-          "displayMode": "table",
+          "calcs": [],
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
@@ -1610,7 +1660,7 @@
           "refId": "A"
         }
       ],
-      "title": "Battery Current \u2014 Total  (+ = charging)",
+      "title": "Battery Current — Total  (+ = charging)",
       "type": "timeseries"
     },
     {
@@ -1728,20 +1778,16 @@
         ]
       },
       "gridPos": {
-        "h": 7,
-        "w": 16,
-        "x": 0,
-        "y": 41
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 35
       },
       "id": 14,
       "options": {
         "legend": {
-          "calcs": [
-            "lastNotNull",
-            "max",
-            "mean"
-          ],
-          "displayMode": "table",
+          "calcs": [],
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
@@ -1760,115 +1806,7 @@
           "refId": "A"
         }
       ],
-      "title": "Battery Power \u2014 Total  (+ = charging)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "influxdb",
-        "uid": "srne-influxdb"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "lineWidth": 2,
-            "lineInterpolation": "linear",
-            "showPoints": "never",
-            "drawStyle": "line",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "pointSize": 4,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "celsius"
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Temperature (\u00b0C)"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#FF9830",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 7,
-        "w": 8,
-        "x": 16,
-        "y": 41
-      },
-      "id": 15,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull",
-            "max",
-            "mean"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "srne-influxdb"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\" and r.name == \"temp_controller\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> rename(columns: {\"_value\": \"Temperature (\u00b0C)\"})\n  |> drop(columns: [\"name\",\"reg\",\"unit\",\"_measurement\",\"_field\"])",
-          "refId": "A"
-        }
-      ],
-      "title": "Controller Temperature",
+      "title": "Battery Power — Total  (+ = charging)",
       "type": "timeseries"
     }
   ],
@@ -1882,12 +1820,12 @@
     "list": []
   },
   "time": {
-    "from": "now-7d",
+    "from": "now-1d",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Solar Monitor \u2014 Historical Graphs",
+  "title": "Solar Monitor — Historical Graphs",
   "uid": "solar-graphs",
   "version": 1,
   "weekStart": ""

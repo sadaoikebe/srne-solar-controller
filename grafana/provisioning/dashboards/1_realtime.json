@@ -90,7 +90,7 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 5,
+        "h": 6,
         "w": 3,
         "x": 0,
         "y": 0
@@ -156,7 +156,7 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 2,
+        "h": 3,
         "w": 3,
         "x": 3,
         "y": 0
@@ -172,7 +172,10 @@
             "lastNotNull"
           ]
         },
-        "textMode": "value"
+        "textMode": "value",
+        "text": {
+          "valueSize": 28
+        }
       },
       "targets": [
         {
@@ -218,10 +221,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 2,
+        "h": 3,
         "w": 3,
         "x": 3,
-        "y": 2
+        "y": 3
       },
       "id": 3,
       "options": {
@@ -234,7 +237,10 @@
             "lastNotNull"
           ]
         },
-        "textMode": "value"
+        "textMode": "value",
+        "text": {
+          "valueSize": 28
+        }
       },
       "targets": [
         {
@@ -260,7 +266,7 @@
             "fixedColor": "yellow",
             "mode": "fixed"
           },
-          "decimals": 0,
+          "decimals": 2,
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -271,12 +277,12 @@
               }
             ]
           },
-          "unit": "watt"
+          "unit": "kwatt"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 2,
+        "h": 3,
         "w": 2,
         "x": 6,
         "y": 0
@@ -292,7 +298,10 @@
             "lastNotNull"
           ]
         },
-        "textMode": "value"
+        "textMode": "value",
+        "text": {
+          "valueSize": 28
+        }
       },
       "targets": [
         {
@@ -300,7 +309,7 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"pv1_power\" or r.name == \"pv2_power\" or r.name == \"pv3_power\" or r.name == \"pv4_power\")\n  |> last()\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      _value: (if exists r.pv1_power then r.pv1_power else 0.0) +\n              (if exists r.pv2_power then r.pv2_power else 0.0) +\n              (if exists r.pv3_power then r.pv3_power else 0.0) +\n              (if exists r.pv4_power then r.pv4_power else 0.0)\n  }))\n  |> keep(columns: [\"_time\",\"_value\"])",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"pv1_power\" or r.name == \"pv2_power\" or r.name == \"pv3_power\" or r.name == \"pv4_power\")\n  |> last()\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      _value: ((if exists r.pv1_power then r.pv1_power else 0.0) +\n               (if exists r.pv2_power then r.pv2_power else 0.0) +\n               (if exists r.pv3_power then r.pv3_power else 0.0) +\n               (if exists r.pv4_power then r.pv4_power else 0.0)) / 1000.0\n  }))\n  |> keep(columns: [\"_time\",\"_value\"])",
           "refId": "A"
         }
       ],
@@ -318,7 +327,7 @@
             "fixedColor": "blue",
             "mode": "fixed"
           },
-          "decimals": 0,
+          "decimals": 2,
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -329,12 +338,12 @@
               }
             ]
           },
-          "unit": "watt"
+          "unit": "kwatt"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 2,
+        "h": 3,
         "w": 2,
         "x": 8,
         "y": 0
@@ -350,7 +359,10 @@
             "lastNotNull"
           ]
         },
-        "textMode": "value"
+        "textMode": "value",
+        "text": {
+          "valueSize": 28
+        }
       },
       "targets": [
         {
@@ -358,7 +370,7 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"load_active_l1\" or r.name == \"load_active_l2\")\n  |> last()\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      _value: (if exists r.load_active_l1 then r.load_active_l1 else 0.0) +\n              (if exists r.load_active_l2 then r.load_active_l2 else 0.0)\n  }))\n  |> keep(columns: [\"_time\",\"_value\"])",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"load_active_l1\" or r.name == \"load_active_l2\")\n  |> last()\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      _value: ((if exists r.load_active_l1 then r.load_active_l1 else 0.0) +\n               (if exists r.load_active_l2 then r.load_active_l2 else 0.0)) / 1000.0\n  }))\n  |> keep(columns: [\"_time\",\"_value\"])",
           "refId": "A"
         }
       ],
@@ -376,7 +388,7 @@
             "fixedColor": "red",
             "mode": "fixed"
           },
-          "decimals": 0,
+          "decimals": 2,
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -387,12 +399,12 @@
               }
             ]
           },
-          "unit": "watt"
+          "unit": "kwatt"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 2,
+        "h": 3,
         "w": 2,
         "x": 10,
         "y": 0
@@ -408,7 +420,10 @@
             "lastNotNull"
           ]
         },
-        "textMode": "value"
+        "textMode": "value",
+        "text": {
+          "valueSize": 28
+        }
       },
       "targets": [
         {
@@ -416,7 +431,7 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"grid_l1\" or r.name == \"grid_l2\")\n  |> last()\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      _value: (if exists r.grid_l1 then r.grid_l1 else 0.0) +\n              (if exists r.grid_l2 then r.grid_l2 else 0.0)\n  }))\n  |> keep(columns: [\"_time\",\"_value\"])",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"grid_l1\" or r.name == \"grid_l2\")\n  |> last()\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      _value: ((if exists r.grid_l1 then r.grid_l1 else 0.0) +\n               (if exists r.grid_l2 then r.grid_l2 else 0.0)) / 1000.0\n  }))\n  |> keep(columns: [\"_time\",\"_value\"])",
           "refId": "A"
         }
       ],
@@ -445,15 +460,15 @@
               }
             ]
           },
-          "unit": "kwh"
+          "unit": "kwatth"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 2,
+        "h": 3,
         "w": 2,
         "x": 6,
-        "y": 2
+        "y": 3
       },
       "id": 10,
       "options": {
@@ -466,7 +481,10 @@
             "lastNotNull"
           ]
         },
-        "textMode": "value"
+        "textMode": "value",
+        "text": {
+          "valueSize": 28
+        }
       },
       "targets": [
         {
@@ -503,15 +521,15 @@
               }
             ]
           },
-          "unit": "kwh"
+          "unit": "kwatth"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 2,
+        "h": 3,
         "w": 2,
         "x": 8,
-        "y": 2
+        "y": 3
       },
       "id": 11,
       "options": {
@@ -524,7 +542,10 @@
             "lastNotNull"
           ]
         },
-        "textMode": "value"
+        "textMode": "value",
+        "text": {
+          "valueSize": 28
+        }
       },
       "targets": [
         {
@@ -561,15 +582,15 @@
               }
             ]
           },
-          "unit": "kwh"
+          "unit": "kwatth"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 2,
+        "h": 3,
         "w": 2,
         "x": 10,
-        "y": 2
+        "y": 3
       },
       "id": 12,
       "options": {
@@ -582,7 +603,10 @@
             "lastNotNull"
           ]
         },
-        "textMode": "value"
+        "textMode": "value",
+        "text": {
+          "valueSize": 28
+        }
       },
       "targets": [
         {
@@ -603,7 +627,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 5
+        "y": 7
       },
       "id": 101,
       "title": "⚡  Live Graphs — Last 3 Hours",
@@ -758,7 +782,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 6
+        "y": 8
       },
       "id": 22,
       "options": {
@@ -896,15 +920,13 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 6
+        "y": 8
       },
       "id": 102,
       "options": {
         "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
+          "calcs": [],
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
@@ -1020,7 +1042,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 6
+        "y": 8
       },
       "id": 103,
       "options": {
