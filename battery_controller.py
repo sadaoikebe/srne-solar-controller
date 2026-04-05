@@ -11,6 +11,7 @@ TIME_MARGIN_MINUTES = 1
 HYSTERESIS_SOC = 2
 CUTOFF_SOC = 9
 CONFIG_PATH = os.getenv("CONFIG_PATH", "/app/targets.json")
+SBU_TO_UTI_COOLDOWN_SECONDS = 30 * 60  # 30 minutes
 
 LIMITED_REGISTERS_URL = "http://modbus_api:5004/limited_registers"
 SET_CHARGE_CURRENT_URL = "http://modbus_api:5004/set_charge_current"
@@ -120,7 +121,7 @@ def update_targets_json(daily_charge_current, target_soc):
     except Exception as e:
         print(f"Failed to write targets.json: {e}")
 
-def determine_next_state(current_state, estimated_soc, target_soc, battery_voltage, time_period, daily_charge_current):
+def determine_next_state(current_state, estimated_soc, target_soc, battery_voltage, time_period, daily_charge_current, last_sbu_to_uti_time):
     """
     次の状態を決定する。
     Args:
@@ -130,33 +131,54 @@ def determine_next_state(current_state, estimated_soc, target_soc, battery_volta
         battery_voltage: バッテリー電圧
         time_period: 現在の時間帯 ("sbu_fixed" または "cheap")
         daily_charge_current: 1 日の充電電流
+        last_sbu_to_uti_time: 最後に SBU→UTI に切り替えた時刻 (datetime or None)
     Returns:
-        (次の状態, new_daily_charge_current)
+        (次の状態, new_daily_charge_current, new_last_sbu_to_uti_time)
     """
     # estimated_soc が取得できていない場合は現在の状態を維持する
     if estimated_soc is None:
-        return current_state, daily_charge_current
+        return current_state, daily_charge_current, last_sbu_to_uti_time
 
     next_state = current_state
     lower_charge_current = False
     new_daily_charge_current = daily_charge_current
+    new_last_sbu_to_uti_time = last_sbu_to_uti_time
+
+    # Helper: has enough time passed since the last SBU→UTI switch?
+    now = datetime.now()
+    cooldown_elapsed = (
+        last_sbu_to_uti_time is None or
+        (now - last_sbu_to_uti_time).total_seconds() >= SBU_TO_UTI_COOLDOWN_SECONDS
+    )
 
     if time_period == "sbu_fixed":
         if current_state == State.UTI_CHARGING:
             if battery_voltage > 51.6 and estimated_soc > CUTOFF_SOC:
-                next_state = State.SBU
+                if cooldown_elapsed:
+                    next_state = State.SBU
+                else:
+                    remaining = SBU_TO_UTI_COOLDOWN_SECONDS - (now - last_sbu_to_uti_time).total_seconds()
+                    print(f"UTI→SBU suppressed: cooldown active ({remaining:.0f}s remaining)")
             elif battery_voltage > 50.6:
                 next_state = State.UTI_STOPPED
         elif current_state == State.UTI_STOPPED:
             if battery_voltage > 51.6 and estimated_soc > CUTOFF_SOC:
-                next_state = State.SBU
+                if cooldown_elapsed:
+                    next_state = State.SBU
+                else:
+                    remaining = SBU_TO_UTI_COOLDOWN_SECONDS - (now - last_sbu_to_uti_time).total_seconds()
+                    print(f"UTI→SBU suppressed: cooldown active ({remaining:.0f}s remaining)")
             elif battery_voltage < 49.4:
                 next_state = State.UTI_CHARGING
         else:  # SBU
             if battery_voltage < 49.4:
                 next_state = State.UTI_CHARGING
+                new_last_sbu_to_uti_time = now
+                print(f"SBU→UTI_CHARGING: low voltage ({battery_voltage:.1f}V), cooldown started")
             elif battery_voltage < 49.6 or estimated_soc <= CUTOFF_SOC:
                 next_state = State.UTI_STOPPED
+                new_last_sbu_to_uti_time = now
+                print(f"SBU→UTI_STOPPED: voltage ({battery_voltage:.1f}V) or low SoC ({estimated_soc:.1f}%), cooldown started")
 
     elif time_period == "uti_fixed":
         # UTI 固定時間帯では常に UTI
@@ -188,7 +210,7 @@ def determine_next_state(current_state, estimated_soc, target_soc, battery_volta
             update_targets_json(new_daily_charge_current, target_soc)
             print(f"Updated daily_charge_current to {new_daily_charge_current}A")
 
-    return next_state, new_daily_charge_current
+    return next_state, new_daily_charge_current, new_last_sbu_to_uti_time
 
 def adjust_battery_charge(battery_soc, load_power, battery_voltage, daily_charge_current, state):
     """
@@ -288,6 +310,7 @@ def main():
     estimated_soc        = None
     current_state        = State.SBU  # 初期状態
     battery_voltage      = 52.0
+    last_sbu_to_uti_time = None  # Timestamp of the last SBU→UTI switch (for cooldown)
 
     print("Starting charge controller...")
     while True:
@@ -337,8 +360,8 @@ def main():
         time_period = get_time_period()
 
         # 状態遷移
-        current_state, daily_charge_current = determine_next_state(
-            current_state, estimated_soc, target_soc, battery_voltage, time_period, daily_charge_current
+        current_state, daily_charge_current, last_sbu_to_uti_time = determine_next_state(
+            current_state, estimated_soc, target_soc, battery_voltage, time_period, daily_charge_current, last_sbu_to_uti_time
         )
 
         desired_priority = determine_output_priority(current_state)
