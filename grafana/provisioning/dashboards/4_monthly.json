@@ -80,7 +80,7 @@
               }
             ]
           },
-          "unit": "kwh"
+          "unit": "kwatth"
         },
         "overrides": [
           {
