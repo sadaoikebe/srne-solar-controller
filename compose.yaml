@@ -56,6 +56,7 @@ services:
       - INFLUX_ORG=${INFLUXDB2_ORG}
       - INFLUX_BUCKET=${INFLUXDB2_BUCKET}
       - CONFIG_PATH=/app/targets.json
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     ports:
       - "${MODBUS_API_PORT:-5004}:${MODBUS_API_PORT:-5004}"
     volumes:
@@ -87,6 +88,7 @@ services:
       - INFLUX_ORG=${INFLUXDB2_ORG}
       - INFLUX_BUCKET=${INFLUXDB2_BUCKET}
       - MODBUS_API_PORT=${MODBUS_API_PORT:-5004}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
       - .:/app
     depends_on:
@@ -105,6 +107,7 @@ services:
       - MODBUS_API_PORT=${MODBUS_API_PORT:-5004}
       - BASIC_AUTH_USER=${USERNAME}
       - BASIC_AUTH_PASS=${PASSWORD}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
       - .:/app
     depends_on:
@@ -122,6 +125,7 @@ services:
       - TZ=${TZ}
       - CONFIG_PATH=/app/targets.json
       - MODBUS_API_PORT=${MODBUS_API_PORT:-5004}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     command: ["supercronic", "/app/crontab"]
     depends_on:
       modbus_api:

@@ -2,8 +2,15 @@
 
 Runs once per day (via cron at 22:59) to determine the optimal overnight
 charge target and current based on the current battery SoC and tomorrow's
-weather forecast.  Results are written to targets.json, which
-battery_controller.py reads every polling cycle.
+weather forecast.  Results are written to targets.json.
+
+Log levels
+----------
+  DEBUG  — detailed calculation steps, intermediate SoC/energy values
+  INFO   — weather code, tier, target SoC, charging hours, required current,
+           result written to file
+  WARNING — weather API failure (default used), SoC already at target
+  ERROR  — register fetch failure, file write failure
 """
 from __future__ import annotations
 
@@ -15,6 +22,10 @@ import sys
 from datetime import date, datetime, timedelta
 
 import requests
+
+from log_config import get_logger
+
+log = get_logger("daily_target")
 
 # ── API / config ──────────────────────────────────────────────────────────────
 
@@ -32,27 +43,24 @@ CONFIG_PATH = os.getenv("CONFIG_PATH", "/app/targets.json")
 
 BATTERY_CAPACITY_AH: float = 520.0
 
-# Wh stored per 1% SoC change.
-# These differ because average bus voltage is higher during charging (~52 V)
-# than during discharge (~49 V).
-BATTERY_WH_PER_SOC_CHARGING:    float = 270.0   # 520 Ah × 52 V / 100  — used when planning charge
-BATTERY_WH_PER_SOC_DISCHARGING: float = 255.0   # 520 Ah × 49 V / 100  — used when estimating drain
+# Wh stored per 1% SoC change.  Different for charge vs discharge because the
+# average bus voltage differs (~52 V charge vs ~49 V discharge).
+BATTERY_WH_PER_SOC_CHARGING:    float = 270.0   # 520 Ah × 52 V / 100
+BATTERY_WH_PER_SOC_DISCHARGING: float = 255.0   # 520 Ah × 49 V / 100
 
-BATTERY_NOMINAL_VOLTAGE_V: float = 53.0  # voltage assumed for required-current calculation
-
-AVERAGE_LOAD_W: float = 1000.0  # assumed average load for SoC-drain estimation
+BATTERY_NOMINAL_VOLTAGE_V: float = 53.0  # assumed voltage for required-current calculation
+AVERAGE_LOAD_W:            float = 1000.0  # assumed average load for SoC-drain estimation
 
 # ── Register fetch ────────────────────────────────────────────────────────────
 
 
 def fetch_registers() -> dict | None:
-    """Fetch the limited register set from modbus_api. Returns None on failure."""
     try:
         r = requests.get(LIMITED_REGISTERS_URL, timeout=5)
         r.raise_for_status()
         return r.json()
     except requests.RequestException as e:
-        print(f"Error fetching registers: {e}")
+        log.error("Register fetch failed: %s", e)
         return None
 
 
@@ -62,6 +70,7 @@ def fetch_registers() -> dict | None:
 def fetch_tomorrow_weather_code() -> int:
     """Return tomorrow's JMA weather code, defaulting to 200 (cloudy) on any failure."""
     try:
+        log.debug("Fetching weather from %s", WEATHER_API_URL)
         r = requests.get(WEATHER_API_URL, timeout=10)
         r.raise_for_status()
         weather_data = r.json()
@@ -75,11 +84,12 @@ def fetch_tomorrow_weather_code() -> int:
         ]
         # timeSeries[0].areas[0].weatherCodes[0] = today, [1] = tomorrow
         code = int(southern_data[0]["timeSeries"][0]["areas"][0]["weatherCodes"][1])
-        print(f"Tomorrow's weather code: {code}")
+        log.info("JMA weather code for tomorrow: %d", code)
         return code
     except Exception as e:
-        # Catches network errors, JSON parse failures, IndexError, KeyError, etc.
-        print(f"Weather fetch/parse failed: {e} — defaulting to code 200 (cloudy)")
+        log.warning(
+            "Weather fetch/parse failed: %s — defaulting to code 200 (cloudy)", e
+        )
         return 200
 
 
@@ -91,6 +101,8 @@ WEATHER_TIER_RULES: list[tuple] = [
     (lambda wc: wc in {300, 301, 311, 313},  5),  # Rain / severe
 ]
 
+_TIER_NAMES = {1: "clear", 2: "mostly sunny", 3: "partly cloudy", 4: "cloudy", 5: "rain/severe"}
+
 
 def determine_weather_tier(weather_code: int) -> int:
     for condition, tier in WEATHER_TIER_RULES:
@@ -99,12 +111,12 @@ def determine_weather_tier(weather_code: int) -> int:
                 return tier
         except Exception:
             continue
-    return 3  # default: partly cloudy
+    log.debug("No tier matched for weather code %d — defaulting to tier 3", weather_code)
+    return 3
 
 
-# ── SOC target lookup table ───────────────────────────────────────────────────
+# ── SoC target lookup table ───────────────────────────────────────────────────
 # Indexed by month (1–12), five tiers (tier 1 = sunniest → tier 5 = worst).
-# Values are the target SOC (%) at the start of the cheap-rate charging window.
 
 MONTHLY_TARGET_SOC_TABLE: dict[int, list[int]] = {
     1:  [55, 60, 70, 85, 101],
@@ -125,15 +137,22 @@ MONTHLY_TARGET_SOC_TABLE: dict[int, list[int]] = {
 def determine_target_soc(weather_code: int, month: int) -> int:
     """Return the target SoC (%) for tomorrow based on weather tier and month."""
     soc_list = MONTHLY_TARGET_SOC_TABLE.get(month, MONTHLY_TARGET_SOC_TABLE[5])
-    tier = determine_weather_tier(weather_code)        # 1..5
-    tier_index = tier - 1                              # 0..4
+    tier      = determine_weather_tier(weather_code)
+    tier_name = _TIER_NAMES.get(tier, "unknown")
+    tier_idx  = tier - 1
 
-    if not (0 <= tier_index < len(soc_list) == 5):
-        print(f"Unexpected tier_index={tier_index} — using conservative fallback 25%")
+    if not (0 <= tier_idx < len(soc_list) == 5):
+        log.error(
+            "Unexpected tier_index=%d for weather_code=%d — using conservative fallback 25%%",
+            tier_idx, weather_code,
+        )
         return 25
 
-    target = soc_list[tier_index]
-    print(f"Month={month}, weather code={weather_code} (Tier {tier}), target SoC={target}%")
+    target = soc_list[tier_idx]
+    log.info(
+        "Target SoC: month=%d  code=%d  tier=%d (%s) → %d%%",
+        month, weather_code, tier, tier_name, target,
+    )
     return target
 
 
@@ -145,44 +164,52 @@ def calculate_required_current(
     target_soc: float,
     charging_hours: float,
 ) -> float:
-    """Return the charge current (A) needed to reach *target_soc* within *charging_hours*."""
+    """Return the charge current (A) needed to reach *target_soc* in *charging_hours*."""
     soc_diff = target_soc - battery_soc
     if soc_diff <= 0:
-        print("SoC difference ≤ 0 — no charging needed.")
+        log.warning(
+            "SoC %.1f%% already meets or exceeds target %.0f%% — no charging required",
+            battery_soc, target_soc,
+        )
         return 0.0
 
-    required_wh     = soc_diff * BATTERY_WH_PER_SOC_CHARGING
-    required_power  = required_wh / charging_hours
-    required_amps   = required_power / BATTERY_NOMINAL_VOLTAGE_V
-    rounded         = max(math.ceil(required_amps), 10)   # minimum 10 A
-    print(f"Required current: {required_amps:.2f} A → rounded up to {rounded} A")
+    required_wh    = soc_diff * BATTERY_WH_PER_SOC_CHARGING
+    required_power = required_wh / charging_hours
+    required_amps  = required_power / BATTERY_NOMINAL_VOLTAGE_V
+    rounded        = max(math.ceil(required_amps), 10)
+
+    log.info(
+        "Required charge: %.1f%% × %.0f Wh/%% = %.0f Wh  "
+        "÷ %.2f h  ÷ %.0f V  = %.2f A  → %d A (min 10 A)",
+        soc_diff, BATTERY_WH_PER_SOC_CHARGING, required_wh,
+        charging_hours, BATTERY_NOMINAL_VOLTAGE_V, required_amps, rounded,
+    )
     return float(rounded)
 
 
 def estimate_soc_at_2259(current_soc: float) -> float:
     """Estimate battery SoC at 22:59 assuming AVERAGE_LOAD_W average consumption."""
-    now = datetime.now()
+    now         = datetime.now()
     target_time = now.replace(hour=22, minute=59, second=0, microsecond=0)
     if target_time <= now:
         target_time += timedelta(days=1)
 
     hours_until_2259 = (target_time - now).total_seconds() / 3600.0
-    energy_consumed  = AVERAGE_LOAD_W * hours_until_2259          # Wh
+    energy_consumed  = AVERAGE_LOAD_W * hours_until_2259
     soc_decrease     = energy_consumed / BATTERY_WH_PER_SOC_DISCHARGING
     estimated        = max(0.0, current_soc - soc_decrease)
-    print(
-        f"Estimated SoC at 22:59: {estimated:.2f}% "
-        f"(current: {current_soc}%, hours to go: {hours_until_2259:.2f})"
+
+    log.info(
+        "SoC estimate at 22:59: current=%.1f%%  hours=%.2f h  "
+        "load=%.0f W  drain=%.1f%% (%.0f Wh ÷ %.0f Wh/%%)  → %.1f%%",
+        current_soc, hours_until_2259, AVERAGE_LOAD_W,
+        soc_decrease, energy_consumed, BATTERY_WH_PER_SOC_DISCHARGING, estimated,
     )
     return estimated
 
 
 def calculate_charging_hours(until_time_str: str | None = None) -> float:
-    """Return hours from now until *until_time_str* (default: next 05:30).
-
-    If *until_time_str* is given, it must be in HH:MM format.
-    Returns 0 if the target time is already in the past.
-    """
+    """Return hours from now until *until_time_str* (default: next 05:30)."""
     now = datetime.now()
 
     if until_time_str:
@@ -194,13 +221,16 @@ def calculate_charging_hours(until_time_str: str | None = None) -> float:
         if until <= now:
             until += timedelta(days=1)
     else:
-        # Default target: 05:30 the following morning
         until = (now + timedelta(days=1)).replace(hour=5, minute=30, second=0, microsecond=0)
-        # If it's currently before 05:30, the target is today (not tomorrow +1)
         if now.hour < 5 or (now.hour == 5 and now.minute < 30):
             until = now.replace(hour=5, minute=30, second=0, microsecond=0)
 
-    return max((until - now).total_seconds() / 3600.0, 0.0)
+    hours = max((until - now).total_seconds() / 3600.0, 0.0)
+    log.info(
+        "Charging window: now=%s  until=%s  → %.2f h",
+        now.strftime("%H:%M"), until.strftime("%Y-%m-%d %H:%M"), hours,
+    )
+    return hours
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -215,10 +245,10 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Estimate SoC at 22:59 from current SoC using average load.",
     )
-    parser.add_argument("--start-soc", type=int, help="Use this SoC instead of fetching.")
-    parser.add_argument("--target-soc", type=int, help="Use this target SoC instead of weather-based.")
-    parser.add_argument("--charging-hours", type=float, help="Override calculated charging hours.")
-    parser.add_argument("--weather-code", type=int, help="Override JMA weather code.")
+    parser.add_argument("--start-soc",      type=int,   help="Use this SoC instead of fetching.")
+    parser.add_argument("--target-soc",     type=int,   help="Override weather-based target SoC.")
+    parser.add_argument("--charging-hours", type=float, help="Override calculated charging window.")
+    parser.add_argument("--weather-code",   type=int,   help="Override JMA weather code.")
     parser.add_argument(
         "--until-time",
         help="Charge until this time (HH:MM). Default: 05:30 next morning.",
@@ -235,68 +265,81 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    args = parse_args()
+    args  = parse_args()
+    month = date.today().month
 
-    # ── Determine starting SoC ─────────────────────────────────────────────
+    log.info("=" * 60)
+    log.info("Daily target calculation started")
+    log.info("  Date          : %s (month=%d)", date.today().isoformat(), month)
+    log.info("  Config file   : %s", CONFIG_PATH)
+    log.info("  API base      : %s", _API_BASE)
+    log.info("  Dry run       : %s", args.dry_run)
+    log.info("=" * 60)
+
+    # ── Starting SoC ──────────────────────────────────────────────────────
     if args.start_soc is not None:
         battery_soc = float(args.start_soc)
-        print(f"Using specified start SoC: {battery_soc}%")
+        log.info("Using CLI start SoC: %.0f%%", battery_soc)
     else:
         data = fetch_registers()
         if not data:
-            print("Failed to fetch registers — exiting.", file=sys.stderr)
+            log.error("Failed to fetch registers — cannot calculate target, exiting")
             sys.exit(1)
-        # 0x0100 = battery SoC (%) — modbus_api v2 hex-address schema
         battery_soc = float(int(data["0x0100"]))
-        print(f"Fetched current SoC: {battery_soc}%")
+        log.info("Current SoC from inverter: %.0f%%", battery_soc)
 
     if args.estimate_start_soc and args.start_soc is None:
         battery_soc = estimate_soc_at_2259(battery_soc)
 
-    # ── Determine target SoC ───────────────────────────────────────────────
-    month = date.today().month
+    log.debug("Effective start SoC for calculation: %.2f%%", battery_soc)
 
+    # ── Target SoC ────────────────────────────────────────────────────────
     if args.target_soc is not None:
         target_soc = args.target_soc
-        print(f"Using specified target SoC: {target_soc}%")
+        log.info("Using CLI target SoC: %d%%", target_soc)
     else:
-        weather_code = args.weather_code if args.weather_code is not None else fetch_tomorrow_weather_code()
+        weather_code = (
+            args.weather_code if args.weather_code is not None
+            else fetch_tomorrow_weather_code()
+        )
         target_soc = determine_target_soc(weather_code, month)
 
-    # ── Determine charging window ──────────────────────────────────────────
+    # ── Charging window ────────────────────────────────────────────────────
     if args.charging_hours is not None and args.until_time is not None:
-        print("Error: --charging-hours and --until-time are mutually exclusive.", file=sys.stderr)
+        log.error("--charging-hours and --until-time are mutually exclusive")
         sys.exit(1)
 
     if args.charging_hours is not None:
         charging_hours = args.charging_hours
+        log.info("Using CLI charging hours: %.2f h", charging_hours)
     else:
         charging_hours = calculate_charging_hours(args.until_time)
-        print(f"Charging window: {charging_hours:.2f} hours")
 
-    # ── Calculate required current ─────────────────────────────────────────
+    # ── Required current ───────────────────────────────────────────────────
     daily_charge_current = calculate_required_current(battery_soc, target_soc, charging_hours)
-    print(
-        f"Result — target_soc={target_soc}%, "
-        f"daily_charge_current={daily_charge_current} A "
-        f"(charging hours: {charging_hours:.2f})"
+
+    log.info(
+        "Result: target_soc=%d%%  daily_charge_current=%.0f A  (over %.2f h)",
+        target_soc, daily_charge_current, charging_hours,
     )
 
     # ── Write targets.json ─────────────────────────────────────────────────
     if args.dry_run:
-        print("Dry-run: targets.json not modified.")
+        log.info("Dry run — targets.json not modified")
         return
 
     targets = {"target_soc": target_soc, "daily_charge_current": daily_charge_current}
     try:
         with open(CONFIG_PATH, "w") as f:
             json.dump(targets, f)
-        print(f"Wrote targets to {CONFIG_PATH}: {targets}")
+        log.info(
+            "Wrote targets to %s: target_soc=%d%%  daily_charge_current=%.0f A",
+            CONFIG_PATH, target_soc, daily_charge_current,
+        )
     except Exception as e:
-        print(f"Failed to write targets.json: {e}", file=sys.stderr)
+        log.error("Failed to write targets.json: %s", e)
         sys.exit(1)
 
 
 if __name__ == "__main__":
-    print(f"Starting daily target calculation at {datetime.now()}")
     main()
