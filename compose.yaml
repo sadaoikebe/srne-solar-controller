@@ -46,7 +46,6 @@ services:
     image: srne-app:latest
     container_name: modbus_api
     restart: unless-stopped
-    privileged: true
     command: uvicorn modbus_api:app --host 0.0.0.0 --port ${MODBUS_API_PORT:-5004}
     environment:
       - BASIC_AUTH_USER=${USERNAME}
@@ -61,6 +60,14 @@ services:
       - "${MODBUS_API_PORT:-5004}:${MODBUS_API_PORT:-5004}"
     volumes:
       - .:/app
+    # Grant access to USB-serial adapters only — safer than privileged: true.
+    # Adjust device paths if your adapters appear on different /dev/ttyUSBN nodes
+    # (check with: ls -la /dev/ttyUSB*  or  python3 -m serial.tools.list_ports -v)
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+      - /dev/ttyUSB1:/dev/ttyUSB1
+    group_add:
+      - dialout
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:5004/limited_registers || exit 1"]
       interval: 3s
@@ -79,6 +86,7 @@ services:
       - INFLUX_TOKEN=${INFLUXDB2_TOKEN}
       - INFLUX_ORG=${INFLUXDB2_ORG}
       - INFLUX_BUCKET=${INFLUXDB2_BUCKET}
+      - MODBUS_API_PORT=${MODBUS_API_PORT:-5004}
     volumes:
       - .:/app
     depends_on:
@@ -94,6 +102,9 @@ services:
     command: python battery_controller.py
     environment:
       - CONFIG_PATH=/app/targets.json
+      - MODBUS_API_PORT=${MODBUS_API_PORT:-5004}
+      - BASIC_AUTH_USER=${USERNAME}
+      - BASIC_AUTH_PASS=${PASSWORD}
     volumes:
       - .:/app
     depends_on:
@@ -101,7 +112,7 @@ services:
         condition: service_healthy
 
   daily_target:
-    build: .
+    image: srne-app:latest
     container_name: daily_target
     restart: unless-stopped
     working_dir: /app
@@ -110,12 +121,11 @@ services:
     environment:
       - TZ=${TZ}
       - CONFIG_PATH=/app/targets.json
+      - MODBUS_API_PORT=${MODBUS_API_PORT:-5004}
     command: ["supercronic", "/app/crontab"]
     depends_on:
       modbus_api:
         condition: service_healthy
 
 volumes:
-  influxdb2-data:
-  influxdb2-config:
   grafana-data:

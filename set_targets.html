@@ -16,9 +16,11 @@
     <h1>Set Target Parameters</h1>
     <form action="/set_targets" method="post">
         <label for="target_soc">Target SOC (%):</label>
-        <input type="number" id="target_soc" name="target_soc" value="{{ target_soc }}" required>
+        <input type="number" id="target_soc" name="target_soc" value="{{ target_soc }}"
+               min="0" max="100" required>
         <label for="daily_charge_current">Daily Charge Current (A):</label>
-        <input type="number" id="daily_charge_current" name="daily_charge_current" value="{{ daily_charge_current }}" required>
+        <input type="number" id="daily_charge_current" name="daily_charge_current" value="{{ daily_charge_current }}"
+               min="0" max="150" required>
         <input type="submit" value="Update">
     </form>
     {% if message %}

@@ -1,141 +1,238 @@
-import time
-import math
-import requests
+"""Battery charge controller.
+
+Polls the inverter every POLL_INTERVAL_S seconds via modbus_api, computes the
+desired output priority and charge current, and pushes changes back.
+"""
+from __future__ import annotations
+
 import json
-from enum import IntEnum
-from enum import Enum
-from datetime import datetime
+import math
 import os
+import time
+from datetime import datetime
+from enum import Enum, IntEnum
+from typing import Optional
 
-TIME_MARGIN_MINUTES = 1
-HYSTERESIS_SOC = 2
-CUTOFF_SOC = 9
+import requests
+
+# ── Hardware / system constants ───────────────────────────────────────────────
+
+POLL_INTERVAL_S: int = 5
+
+# Battery bank parameters — update these if the pack changes.
+BATTERY_CAPACITY_AH: float = 520.0
+
+# Wh stored per 1% SoC change.
+# Charging and discharging use slightly different values because the average
+# bus voltage differs: ~52 V during charging vs ~49 V during discharge.
+BATTERY_WH_PER_SOC_CHARGING:    float = 270.0   # 520 Ah × 52 V / 100
+BATTERY_WH_PER_SOC_DISCHARGING: float = 255.0   # 520 Ah × 49 V / 100
+
+# Pre-computed: SoC (%) change per amp-second, scaled to one polling tick.
+# Derivation: 100 % / (capacity_Ah × 3600 s/h) × POLL_INTERVAL_S
+_SOC_DELTA_PER_A_PER_TICK: float = (
+    100.0 / (BATTERY_CAPACITY_AH * 3600.0) * POLL_INTERVAL_S
+)  # ≈ 1/3744  (at 520 Ah, 5 s)
+
+GRID_MAX_POWER_W: float    = 9000.0   # Maximum grid power budget (W)
+HYSTERESIS_SOC:   float    = 2.0      # SoC hysteresis band (%)
+CUTOFF_SOC:       float    = 9.0      # Emergency SoC floor (%)
+SBU_TO_UTI_COOLDOWN_S: int = 30 * 60  # Minimum seconds between SBU→UTI switches
+
+# ── Runtime configuration ─────────────────────────────────────────────────────
+
 CONFIG_PATH = os.getenv("CONFIG_PATH", "/app/targets.json")
-SBU_TO_UTI_COOLDOWN_SECONDS = 30 * 60  # 30 minutes
 
-LIMITED_REGISTERS_URL = "http://modbus_api:5004/limited_registers"
-SET_CHARGE_CURRENT_URL = "http://modbus_api:5004/set_charge_current"
+_API_PORT: int = int(os.getenv("MODBUS_API_PORT", "5004"))
+_API_BASE: str = f"http://modbus_api:{_API_PORT}"
+
+LIMITED_REGISTERS_URL:   str = f"{_API_BASE}/limited_registers"
+SET_CHARGE_CURRENT_URL:  str = f"{_API_BASE}/set_charge_current"
+SET_OUTPUT_PRIORITY_URL: str = f"{_API_BASE}/set_output_priority"
+
+# Optional HTTP Basic Auth for write endpoints — reads from the same env vars
+# that modbus_api uses, so no extra secrets are needed.
+_AUTH_USER = os.getenv("BASIC_AUTH_USER")
+_AUTH_PASS = os.getenv("BASIC_AUTH_PASS")
+_API_AUTH: tuple[str, str] | None = (
+    (_AUTH_USER, _AUTH_PASS) if _AUTH_USER and _AUTH_PASS else None
+)
+
+# ── Enums ─────────────────────────────────────────────────────────────────────
+
 
 class OutputPriority(IntEnum):
     SOL = 0
     UTI = 1
     SBU = 2
 
+
 class State(Enum):
     UTI_CHARGING = "UTI_CHARGING"
     UTI_STOPPED  = "UTI_STOPPED"
     SBU          = "SBU"
 
-def fetch_registers():
+
+# ── Time-period helpers ───────────────────────────────────────────────────────
+
+# Edit these entries to match your electricity tariff schedule.
+# Each period must have a "name", "start", and "end" in "H:MM" or "HH:MM".
+# Periods may wrap midnight (e.g. "23:01"→"6:58").
+TIME_PERIODS: list[dict] = [
+    {"name": "cheap",     "start": "23:01", "end": "6:58"},
+    {"name": "sbu_fixed", "start": "6:59",  "end": "23:00"},
+]
+
+
+def _str_to_time(s: str) -> datetime.time:
     try:
-        response = requests.get(LIMITED_REGISTERS_URL)
-        response.raise_for_status()
-        return response.json()
+        return datetime.strptime(s, "%H:%M").time()
+    except ValueError:
+        raise ValueError(f"Invalid time format '{s}'. Expected H:MM or HH:MM.")
+
+
+def _time_in_period(
+    current: datetime.time,
+    start: datetime.time,
+    end: datetime.time,
+) -> bool:
+    """True if *current* is within [start, end], crossing midnight when start > end."""
+    if start <= end:
+        return start <= current <= end
+    return current >= start or current <= end
+
+
+def get_time_period() -> str:
+    """Return the name of the current time period, or 'unknown' if none matches."""
+    now = datetime.now().time()
+    for period in TIME_PERIODS:
+        if _time_in_period(now, _str_to_time(period["start"]), _str_to_time(period["end"])):
+            return period["name"]
+    return "unknown"
+
+
+# ── Register helpers ──────────────────────────────────────────────────────────
+
+
+def _to_signed_16(raw: int) -> int:
+    """Reinterpret a uint16 as a signed int16; pass-through if already negative."""
+    if raw < 0:
+        return raw
+    return raw - 0x10000 if raw >= 0x8000 else raw
+
+
+# ── I/O helpers ───────────────────────────────────────────────────────────────
+
+
+def fetch_registers() -> dict | None:
+    """Fetch the limited register set from modbus_api. Returns None on failure."""
+    try:
+        r = requests.get(LIMITED_REGISTERS_URL, timeout=3)
+        r.raise_for_status()
+        return r.json()
     except requests.RequestException as e:
         print(f"Error fetching registers: {e}")
         return None
 
-def set_charge_current(current):
+
+def set_charge_current(current: float) -> bool:
     try:
-        response = requests.post(SET_CHARGE_CURRENT_URL, json={"value": current})
-        response.raise_for_status()
-        result = response.json()
-        if result.get('success'):
+        r = requests.post(
+            SET_CHARGE_CURRENT_URL,
+            json={"value": current},
+            timeout=3,
+            auth=_API_AUTH,
+        )
+        r.raise_for_status()
+        result = r.json()
+        if result.get("success"):
             return True
-        else:
-            print(f"Error setting charge current: {result.get('message')}")
-            return False
+        print(f"Error setting charge current: {result.get('message')}")
+        return False
     except requests.RequestException as e:
         print(f"Error setting charge current: {e}")
         return False
 
-def set_output_priority(priority):
+
+def set_output_priority(priority: int) -> bool:
     try:
-        response = requests.post("http://modbus_api:5004/set_output_priority", json={"value": priority})
-        response.raise_for_status()
-        result = response.json()
-        if result.get('success'):
-            print(f"Set Output Priority successfully: {result['value']}")
+        r = requests.post(
+            SET_OUTPUT_PRIORITY_URL,
+            json={"value": priority},
+            timeout=3,
+            auth=_API_AUTH,
+        )
+        r.raise_for_status()
+        result = r.json()
+        if result.get("success"):
+            print(f"Set Output Priority: {result['value']}")
             return True
-        else:
-            print(f"Error setting Output Priority: {result.get('message')}")
-            return False
+        print(f"Error setting Output Priority: {result.get('message')}")
+        return False
     except requests.RequestException as e:
         print(f"Error setting Output Priority: {e}")
         return False
 
-def calculate_grid_limit_current(load_power, battery_voltage):
-    GRID_MAX_POWER = 9000
-    grid_max_draw = GRID_MAX_POWER - load_power
-    if 30.0 < battery_voltage < 70.0:
-        return math.floor((grid_max_draw / battery_voltage) / 5.0) * 5.0
-    return 0
 
-TIME_PERIODS = [
-    {
-        "name": "cheap",
-        "start": "23:01",
-        "end": "6:58"
-    },
-    {
-        "name": "sbu_fixed",
-        "start": "6:59",
-        "end": "23:00"
-    }
-]
-
-def str_to_time(time_str):
-    """文字列をdatetime.timeに変換"""
-    try:
-        return datetime.strptime(time_str, "%H:%M").time()
-    except ValueError:
-        raise ValueError("Invalid time format. Use HH:MM (e.g., '6:59')")
-
-def is_time_in_period(current_time, start_time, end_time):
-    """現在時刻が指定時間帯にあるか判定"""
-    if start_time <= end_time:
-        return start_time <= current_time <= end_time
-    else:  # 深夜を跨ぐ場合（例: 23:01〜6:59）
-        return current_time >= start_time or current_time <= end_time
-
-def get_time_period():
-    """
-    時間帯を判定する。
-    Returns:
-        str: 時間帯の名前（例: "sbu_fixed", "cheap"）または "unknown"
-    """
-    current_time = datetime.now().time()
-    for period in TIME_PERIODS:
-        start = str_to_time(period["start"])
-        end   = str_to_time(period["end"])
-        if is_time_in_period(current_time, start, end):
-            return period["name"]
-    return "unknown"
-
-def update_targets_json(daily_charge_current, target_soc):
-    """targets.json を更新"""
+def update_targets_json(daily_charge_current: float, target_soc: float) -> None:
     try:
         with open(CONFIG_PATH, "w") as f:
-            json.dump({"target_soc": target_soc, "daily_charge_current": daily_charge_current}, f)
-        print(f"Wrote targets to {CONFIG_PATH}: target_soc={target_soc}, daily_charge_current={daily_charge_current}")
+            json.dump(
+                {"target_soc": target_soc, "daily_charge_current": daily_charge_current}, f
+            )
+        print(
+            f"Wrote targets: target_soc={target_soc}, "
+            f"daily_charge_current={daily_charge_current} A"
+        )
     except Exception as e:
         print(f"Failed to write targets.json: {e}")
 
-def determine_next_state(current_state, estimated_soc, target_soc, battery_voltage, time_period, daily_charge_current, last_sbu_to_uti_time):
+
+def load_targets_from_file(
+    current_daily_charge_current: float,
+    current_target_soc: float,
+) -> tuple[float, float]:
+    try:
+        with open(CONFIG_PATH) as f:
+            targets = json.load(f)
+        return (
+            float(targets.get("daily_charge_current", current_daily_charge_current)),
+            float(targets.get("target_soc", current_target_soc)),
+        )
+    except Exception as e:
+        print(
+            f"Failed to load targets.json: {e} — "
+            f"using target_soc={current_target_soc}, "
+            f"daily_charge_current={current_daily_charge_current}"
+        )
+        return current_daily_charge_current, current_target_soc
+
+
+# ── Control logic ─────────────────────────────────────────────────────────────
+
+
+def calculate_grid_limit_current(load_power: float, battery_voltage: float) -> float:
+    """Maximum charge current (A) without exceeding the grid power budget."""
+    grid_headroom = GRID_MAX_POWER_W - load_power
+    if 30.0 < battery_voltage < 70.0:
+        return math.floor((grid_headroom / battery_voltage) / 5.0) * 5.0
+    return 0.0
+
+
+def determine_next_state(
+    current_state: State,
+    estimated_soc: float | None,
+    target_soc: float,
+    battery_voltage: float,
+    time_period: str,
+    daily_charge_current: float,
+    last_sbu_to_uti_time: datetime | None,
+) -> tuple[State, float, datetime | None]:
+    """Compute the next control state and any side-effects on targets.
+
+    Returns (next_state, new_daily_charge_current, new_last_sbu_to_uti_time).
+    If estimated_soc is None (no data yet), the current state is held.
     """
-    次の状態を決定する。
-    Args:
-        current_state: 現在の状態 (State 型)
-        estimated_soc: 推測された SoC (小数点以下含む)、None の場合は状態を維持
-        target_soc: 目標 SoC
-        battery_voltage: バッテリー電圧
-        time_period: 現在の時間帯 ("sbu_fixed" または "cheap")
-        daily_charge_current: 1 日の充電電流
-        last_sbu_to_uti_time: 最後に SBU→UTI に切り替えた時刻 (datetime or None)
-    Returns:
-        (次の状態, new_daily_charge_current, new_last_sbu_to_uti_time)
-    """
-    # estimated_soc が取得できていない場合は現在の状態を維持する
     if estimated_soc is None:
         return current_state, daily_charge_current, last_sbu_to_uti_time
 
@@ -144,11 +241,10 @@ def determine_next_state(current_state, estimated_soc, target_soc, battery_volta
     new_daily_charge_current = daily_charge_current
     new_last_sbu_to_uti_time = last_sbu_to_uti_time
 
-    # Helper: has enough time passed since the last SBU→UTI switch?
     now = datetime.now()
     cooldown_elapsed = (
-        last_sbu_to_uti_time is None or
-        (now - last_sbu_to_uti_time).total_seconds() >= SBU_TO_UTI_COOLDOWN_SECONDS
+        last_sbu_to_uti_time is None
+        or (now - last_sbu_to_uti_time).total_seconds() >= SBU_TO_UTI_COOLDOWN_S
     )
 
     if time_period == "sbu_fixed":
@@ -157,35 +253,37 @@ def determine_next_state(current_state, estimated_soc, target_soc, battery_volta
                 if cooldown_elapsed:
                     next_state = State.SBU
                 else:
-                    remaining = SBU_TO_UTI_COOLDOWN_SECONDS - (now - last_sbu_to_uti_time).total_seconds()
-                    print(f"UTI→SBU suppressed: cooldown active ({remaining:.0f}s remaining)")
+                    remaining = SBU_TO_UTI_COOLDOWN_S - (now - last_sbu_to_uti_time).total_seconds()
+                    print(f"UTI→SBU suppressed: cooldown active ({remaining:.0f} s remaining)")
             elif battery_voltage > 50.6:
                 next_state = State.UTI_STOPPED
+
         elif current_state == State.UTI_STOPPED:
             if battery_voltage > 51.6 and estimated_soc > CUTOFF_SOC:
                 if cooldown_elapsed:
                     next_state = State.SBU
                 else:
-                    remaining = SBU_TO_UTI_COOLDOWN_SECONDS - (now - last_sbu_to_uti_time).total_seconds()
-                    print(f"UTI→SBU suppressed: cooldown active ({remaining:.0f}s remaining)")
+                    remaining = SBU_TO_UTI_COOLDOWN_S - (now - last_sbu_to_uti_time).total_seconds()
+                    print(f"UTI→SBU suppressed: cooldown active ({remaining:.0f} s remaining)")
             elif battery_voltage < 49.4:
                 next_state = State.UTI_CHARGING
-        else:  # SBU
+
+        else:  # State.SBU
             if battery_voltage < 49.4:
                 next_state = State.UTI_CHARGING
                 new_last_sbu_to_uti_time = now
-                print(f"SBU→UTI_CHARGING: low voltage ({battery_voltage:.1f}V), cooldown started")
+                print(
+                    f"SBU→UTI_CHARGING: low voltage ({battery_voltage:.1f} V), cooldown started"
+                )
             elif battery_voltage < 49.6 or estimated_soc <= CUTOFF_SOC:
                 next_state = State.UTI_STOPPED
                 new_last_sbu_to_uti_time = now
-                print(f"SBU→UTI_STOPPED: voltage ({battery_voltage:.1f}V) or low SoC ({estimated_soc:.1f}%), cooldown started")
+                print(
+                    f"SBU→UTI_STOPPED: voltage ({battery_voltage:.1f} V) "
+                    f"or low SoC ({estimated_soc:.1f}%), cooldown started"
+                )
 
-    elif time_period == "uti_fixed":
-        # UTI 固定時間帯では常に UTI
-        next_state = State.UTI_STOPPED
-
-    else:
-        # Cheap 時間帯での状態遷移（estimated_soc を使用）
+    elif time_period == "cheap":
         if current_state == State.UTI_CHARGING:
             if estimated_soc > target_soc + HYSTERESIS_SOC:
                 next_state = State.SBU
@@ -193,175 +291,153 @@ def determine_next_state(current_state, estimated_soc, target_soc, battery_volta
             elif estimated_soc > target_soc + 0.4:
                 next_state = State.UTI_STOPPED
                 lower_charge_current = True
+
         elif current_state == State.UTI_STOPPED:
             if estimated_soc > target_soc + HYSTERESIS_SOC:
                 next_state = State.SBU
             elif estimated_soc < target_soc - 0.4:
                 next_state = State.UTI_CHARGING
-        elif current_state == State.SBU:
+
+        else:  # State.SBU
             if estimated_soc < target_soc - 0.4:
                 next_state = State.UTI_CHARGING
             elif estimated_soc < target_soc + 0.4:
                 next_state = State.UTI_STOPPED
 
+    # "unknown" time period — hold current state without any transitions
+
     if lower_charge_current:
-        new_daily_charge_current = min(10, daily_charge_current)
+        new_daily_charge_current = min(10.0, daily_charge_current)
         if new_daily_charge_current != daily_charge_current:
             update_targets_json(new_daily_charge_current, target_soc)
-            print(f"Updated daily_charge_current to {new_daily_charge_current}A")
+            print(f"Lowered daily_charge_current to {new_daily_charge_current} A")
 
     return next_state, new_daily_charge_current, new_last_sbu_to_uti_time
 
-def adjust_battery_charge(battery_soc, load_power, battery_voltage, daily_charge_current, state):
-    """
-    状態に応じて充電電流を調整する。
-    Args:
-        battery_soc: 現在のバッテリー SoC
-        load_power: 負荷電力
-        battery_voltage: バッテリー電圧
-        daily_charge_current: 1 日の充電電流（targets.json から）
-        state: 現在の状態 (State 型)
-    Returns:
-        充電電流 (A)
-    """
-    if state == State.SBU:
-        return 0  # SBU では充電しない
-    if state == State.UTI_STOPPED:
-        return 0  # UTI(充電停止) では充電しない
 
-    # UTI(充電中) の場合、通常の充電ロジック
-    grid_limit_current = calculate_grid_limit_current(load_power, battery_voltage)
-    target_charge_current = daily_charge_current
+def adjust_battery_charge(
+    battery_soc: float,
+    load_power: float,
+    battery_voltage: float,
+    daily_charge_current: float,
+    state: State,
+) -> float:
+    """Return the target charge current (A) for the given state and conditions."""
+    if state in (State.SBU, State.UTI_STOPPED):
+        return 0.0
 
-    soc_charge_limits = [
-        (60,  120),  # SOC < 60: 120A
-        (70,  105),  # 60 <= SOC < 70: 105A
-        (80,   90),  # 70 <= SOC < 80: 90A
-        (85,   80),  # 80 <= SOC < 85: 80A
-        (90,   70),
-        (93,   60),
-        (96,   50),
-        (98,   40),
-        (99,   30),
-        (100,  20),
+    # State.UTI_CHARGING — apply SoC-taper and voltage-taper limits
+    grid_limit = calculate_grid_limit_current(load_power, battery_voltage)
+    target = daily_charge_current
+
+    SOC_LIMITS = [
+        (60, 120), (70, 105), (80,  90), (85, 80),
+        (90,  70), (93,  60), (96,  50), (98, 40),
+        (99,  30), (100, 20),
     ]
-
-    for soc_threshold, limit in soc_charge_limits:
+    for soc_threshold, limit in SOC_LIMITS:
         if battery_soc < soc_threshold:
-            target_charge_current = min(limit, target_charge_current)
+            target = min(float(limit), target)
             break
     else:
-        target_charge_current = min(10, target_charge_current)  # SOC >= 100: 10A
+        target = min(10.0, target)
 
-    voltage_charge_limits = [
-        (55.2, 120),
-        (55.6,  80),
-        (55.8,  60),
-        (56.0,  40),
-        (56.3,  30),
-        (56.5,  24),
-        (56.6,  18),
-        (56.7,  14),
-        (56.8,  10),
-        (56.9,   7),
+    VOLT_LIMITS = [
+        (55.2, 120), (55.6,  80), (55.8, 60), (56.0, 40),
+        (56.3,  30), (56.5,  24), (56.6, 18), (56.7, 14),
+        (56.8,  10), (56.9,   7),
     ]
-
-    for volt_threshold, limit in voltage_charge_limits:
+    for volt_threshold, limit in VOLT_LIMITS:
         if battery_voltage < volt_threshold:
-            target_charge_current = min(limit, target_charge_current)
+            target = min(float(limit), target)
             break
     else:
-        target_charge_current = min(2, target_charge_current)
+        target = min(2.0, target)
 
-    target_charge_current = min(grid_limit_current, target_charge_current)
-    return target_charge_current
+    return min(grid_limit, target)
 
-def determine_output_priority(state):
-    """
-    状態に応じて出力優先度を決定する。
-    Args:
-        state: 現在の状態 (State 型)
-    Returns:
-        出力優先度 (OutputPriority)
-    """
-    if state == State.SBU:
-        return OutputPriority.SBU
-    return OutputPriority.UTI
 
-def load_targets_from_file(current_daily_charge_current, current_target_soc):
-    try:
-        with open(CONFIG_PATH, "r") as f:
-            targets = json.load(f)
-            daily_charge_current = targets.get("daily_charge_current", current_daily_charge_current)
-            target_soc = targets.get("target_soc", current_target_soc)
-            return daily_charge_current, target_soc
-    except Exception as e:
-        print(f"Failed to load targets.json: {e}, "
-              f"using previous target_soc={current_target_soc}, "
-              f"daily_charge_current={current_daily_charge_current}")
-        return current_daily_charge_current, current_target_soc
+def determine_output_priority(state: State) -> OutputPriority:
+    return OutputPriority.SBU if state == State.SBU else OutputPriority.UTI
 
-def main():
-    last_charge_current  = 0
-    daily_charge_current = 0
-    target_soc           = 90
-    last_output_priority = None
-    battery_soc          = None
-    estimated_soc        = None
-    current_state        = State.SBU  # 初期状態
-    battery_voltage      = 52.0
-    last_sbu_to_uti_time = None  # Timestamp of the last SBU→UTI switch (for cooldown)
+
+# ── Main loop ─────────────────────────────────────────────────────────────────
+
+
+def main() -> None:
+    last_charge_current:  float            = 0.0
+    daily_charge_current: float            = 0.0
+    target_soc:           float            = 90.0
+    last_output_priority: OutputPriority | None = None
+    battery_soc:          float | None     = None
+    estimated_soc:        float | None     = None
+    current_state:        State            = State.SBU
+    battery_voltage:      float            = 52.0
+    last_sbu_to_uti_time: datetime | None  = None
 
     print("Starting charge controller...")
     while True:
-        daily_charge_current, target_soc = load_targets_from_file(daily_charge_current, target_soc)
+        daily_charge_current, target_soc = load_targets_from_file(
+            daily_charge_current, target_soc
+        )
 
         limited_data = fetch_registers()
 
         if limited_data:
             last_battery_soc = battery_soc
 
-            # ── Register key names use hex addresses matching modbus_api v2 schema ──
-            # 0x0100 = battery SOC (%)
-            # 0x0101 = battery voltage (raw ×0.1 V)
-            # 0x0102 = battery current (raw ×0.1 A, 16-bit two's complement)
-            # 0x021C = load apparent power L1 (W)
-            # 0x0234 = load apparent power L2 (W)
-            battery_soc     = int(limited_data["0x0100"])
-            raw_current     = int(limited_data["0x0102"])
-            battery_current = (65536 - raw_current) / 10 if raw_current > 32767 else -raw_current / 10
-            load_power      = int(limited_data["0x021C"]) + int(limited_data["0x0234"])
+            # Register-key → value (modbus_api v2 hex-address schema):
+            #   0x0100 = battery SoC (%)
+            #   0x0101 = battery voltage (raw × 0.1 V)
+            #   0x0102 = battery current (raw × 0.1 A, signed 16-bit;
+            #            inverter sign: negative register value = charging)
+            #   0x021C = load apparent power L1 (W)
+            #   0x0234 = load apparent power L2 (W)
+            battery_soc     = float(int(limited_data["0x0100"]))
             battery_voltage = int(limited_data["0x0101"]) / 10.0
+            # After sign-flip: positive = charging, negative = discharging
+            battery_current = -_to_signed_16(int(limited_data["0x0102"])) / 10.0
+            load_power      = int(limited_data["0x021C"]) + int(limited_data["0x0234"])
 
-            if estimated_soc is None or (last_battery_soc is not None and abs(battery_soc - last_battery_soc) >= 2):
-                estimated_soc = float(battery_soc)
+            # ── Sub-integer SoC estimator ──────────────────────────────────
+            if estimated_soc is None or (
+                last_battery_soc is not None and abs(battery_soc - last_battery_soc) >= 2
+            ):
+                # First reading or large jump — snap directly to hardware value
+                estimated_soc = battery_soc
             else:
-                # SoC が変化した場合
                 if last_battery_soc is not None:
                     if battery_soc == last_battery_soc - 1:
+                        # Display just ticked down; real SoC is near the top of the new integer
                         estimated_soc = battery_soc + 0.49
                     elif battery_soc == last_battery_soc + 1:
                         estimated_soc = battery_soc - 0.49
 
-                # SoC が変化しない場合、充電電流から推測
-                if last_battery_soc is not None and last_battery_soc == battery_soc and battery_current != 0:
-                    delta_soc = battery_current / 3744  # 520Ah * 3600s / 5s / 100%
-                    estimated_soc += delta_soc
-
-                    # 上限下限の制限 (battery_soc ± 0.49)
+                # Integrate measured current when the displayed integer hasn't changed
+                if (
+                    last_battery_soc is not None
+                    and last_battery_soc == battery_soc
+                    and battery_current != 0
+                ):
+                    estimated_soc += battery_current * _SOC_DELTA_PER_A_PER_TICK
+                    # Clamp to ±0.5% around the hardware-integer reading
                     estimated_soc = max(battery_soc - 0.5, min(battery_soc + 0.5, estimated_soc))
 
         else:
             last_battery_soc = battery_soc
-            load_power       = 0
+            load_power       = 0.0
             battery_voltage  = 53.0
 
-        # 時間帯を取得
         time_period = get_time_period()
 
-        # 状態遷移
         current_state, daily_charge_current, last_sbu_to_uti_time = determine_next_state(
-            current_state, estimated_soc, target_soc, battery_voltage, time_period, daily_charge_current, last_sbu_to_uti_time
+            current_state,
+            estimated_soc,
+            target_soc,
+            battery_voltage,
+            time_period,
+            daily_charge_current,
+            last_sbu_to_uti_time,
         )
 
         desired_priority = determine_output_priority(current_state)
@@ -377,7 +453,8 @@ def main():
                 set_charge_current(target_charge_current)
                 last_charge_current = target_charge_current
 
-        time.sleep(5)
+        time.sleep(POLL_INTERVAL_S)
+
 
 if __name__ == "__main__":
     main()

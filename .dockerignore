@@ -1,0 +1,11 @@
+.git
+.gitignore
+.vscode
+venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+grafana
+v1_to_v2.py
+*.md
