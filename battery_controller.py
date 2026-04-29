@@ -18,7 +18,7 @@ import json
 import math
 import os
 import time
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum, IntEnum
 
 import requests
@@ -53,6 +53,19 @@ FAIL_SAFE_TICKS:       int = 60        # After this many consecutive fetch failu
                                        # (60 × 5 s = 5 min), force SBU → UTI_STOPPED
                                        # to stop discharging the battery without monitoring.
 
+# ── Full-charge (LFP balancing / SoC sync) constants ─────────────────────────
+# Triggered by daily_target.py setting "full_charge: true" in targets.json
+# the night before a tier-5 weather day, no more than once per
+# FULL_CHARGE_MIN_INTERVAL_DAYS.  Phases: BULK → BALANCE → SYNC → done.
+
+BALANCE_ENTRY_VOLTAGE: float = 55.6   # V — leave BULK once voltage reaches this
+BALANCE_ENTRY_CURRENT: float = 15.0   # A — and current has tapered down to this
+SYNC_START_TIME:       str   = "06:43"  # Begin SYNC nudge at/after this time
+SYNC_DEADLINE:         str   = "06:58"  # Hard stop (cheap period ends 06:58, sbu_fixed at 06:59)
+SYNC_MAX_CURRENT:      float = 30.0   # A — current cap during SYNC nudge
+SYNC_VOLTAGE_CEILING:  float = 57.2   # V — abort SYNC if voltage exceeds this
+SYNC_TIMEOUT_MINUTES:  int   = 15     # Maximum SYNC duration
+
 # ── Runtime configuration ─────────────────────────────────────────────────────
 
 CONFIG_PATH = os.getenv("CONFIG_PATH", "/app/targets.json")
@@ -83,6 +96,13 @@ class State(Enum):
     UTI_CHARGING = "UTI_CHARGING"
     UTI_STOPPED  = "UTI_STOPPED"
     SBU          = "SBU"
+
+
+class ChargeMode(Enum):
+    NORMAL  = "NORMAL"   # Default — daily SoC-target-driven charging
+    BULK    = "BULK"     # Full charge phase 1: charge until voltage rises and current tapers
+    BALANCE = "BALANCE"  # Full charge phase 2: hold at high voltage to let cells equalize
+    SYNC    = "SYNC"     # Full charge phase 3: brief nudge to force BMS SoC calibration to 100%
 
 
 # ── Time-period helpers ───────────────────────────────────────────────────────
@@ -190,12 +210,24 @@ def set_output_priority(priority: int) -> bool:
         return False
 
 
+def _read_targets_file() -> dict:
+    """Read targets.json; return {} on any error."""
+    try:
+        with open(CONFIG_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
 def update_targets_json(daily_charge_current: float, target_soc: float) -> None:
+    """Write daily_charge_current and target_soc to targets.json, preserving other keys
+    (full_charge, last_full_charge) so the full-charge bookkeeping isn't clobbered."""
+    targets = _read_targets_file()
+    targets["target_soc"] = target_soc
+    targets["daily_charge_current"] = daily_charge_current
     try:
         with open(CONFIG_PATH, "w") as f:
-            json.dump(
-                {"target_soc": target_soc, "daily_charge_current": daily_charge_current}, f
-            )
+            json.dump(targets, f)
         log.info(
             "targets.json updated: target_soc=%.0f%%  daily_charge_current=%.0f A",
             target_soc, daily_charge_current,
@@ -204,26 +236,43 @@ def update_targets_json(daily_charge_current: float, target_soc: float) -> None:
         log.warning("Failed to write targets.json: %s", e)
 
 
+def _complete_full_charge() -> None:
+    """Mark full-charge as completed: clear the flag and record today's date."""
+    targets = _read_targets_file()
+    targets["full_charge"] = False
+    targets["last_full_charge"] = date.today().isoformat()
+    try:
+        with open(CONFIG_PATH, "w") as f:
+            json.dump(targets, f)
+        log.info(
+            "Full charge completed: cleared full_charge flag, last_full_charge=%s",
+            targets["last_full_charge"],
+        )
+    except Exception as e:
+        log.warning("Failed to write targets.json on full-charge completion: %s", e)
+
+
 def load_targets_from_file(
     current_daily_charge_current: float,
     current_target_soc: float,
-) -> tuple[float, float]:
+) -> tuple[float, float, bool]:
     try:
         with open(CONFIG_PATH) as f:
             targets = json.load(f)
         daily = float(targets.get("daily_charge_current", current_daily_charge_current))
         soc   = float(targets.get("target_soc", current_target_soc))
+        full_charge = bool(targets.get("full_charge", False))
         log.debug(
-            "Targets loaded from file: target_soc=%.0f%%  daily_charge_current=%.0f A",
-            soc, daily,
+            "Targets loaded from file: target_soc=%.0f%%  daily_charge_current=%.0f A  full_charge=%s",
+            soc, daily, full_charge,
         )
-        return daily, soc
+        return daily, soc, full_charge
     except Exception as e:
         log.warning(
             "Failed to load targets.json: %s — keeping target_soc=%.0f%%  daily_charge_current=%.0f A",
             e, current_target_soc, current_daily_charge_current,
         )
-        return current_daily_charge_current, current_target_soc
+        return current_daily_charge_current, current_target_soc, False
 
 
 # ── Control logic ─────────────────────────────────────────────────────────────
@@ -253,6 +302,7 @@ def determine_next_state(
     time_period: str,
     daily_charge_current: float,
     last_sbu_to_uti_time: datetime | None,
+    full_charge_active: bool = False,
 ) -> tuple[State, float, datetime | None]:
     """Compute the next control state and any side-effects on targets.
 
@@ -317,6 +367,17 @@ def determine_next_state(
                 )
 
     elif time_period == "cheap":
+        # Full charge in progress: stay in UTI_CHARGING regardless of SoC vs target.
+        # Phase progression and current calculation are handled by the main loop.
+        if full_charge_active:
+            if current_state != State.UTI_CHARGING:
+                log.info(
+                    "Full charge active: forcing %s → UTI_CHARGING in cheap period",
+                    current_state.value,
+                )
+                next_state = State.UTI_CHARGING
+            return next_state, daily_charge_current, last_sbu_to_uti_time
+
         if current_state == State.UTI_CHARGING:
             if estimated_soc > target_soc + HYSTERESIS_SOC:
                 next_state = State.SBU
@@ -383,14 +444,32 @@ def adjust_battery_charge(
     battery_voltage: float,
     daily_charge_current: float,
     state: State,
+    charge_mode: ChargeMode = ChargeMode.NORMAL,
 ) -> float:
     """Return the target charge current (A) for the given state and conditions."""
     if state in (State.SBU, State.UTI_STOPPED):
         log.debug("Charge current = 0 A (state=%s)", state.value)
         return 0.0
 
-    # State.UTI_CHARGING — apply SoC-taper and voltage-taper limits
     grid_limit = calculate_grid_limit_current(load_power, battery_voltage)
+
+    # SYNC: bypass voltage taper to nudge BMS coulomb counter to 100%.
+    # Hard-abort if voltage approaches BMS over-voltage cutoff.
+    if charge_mode == ChargeMode.SYNC:
+        if battery_voltage >= SYNC_VOLTAGE_CEILING:
+            log.warning(
+                "SYNC abort: voltage %.2f V >= ceiling %.2f V — charge current 0 A",
+                battery_voltage, SYNC_VOLTAGE_CEILING,
+            )
+            return 0.0
+        target = min(SYNC_MAX_CURRENT, grid_limit)
+        log.debug(
+            "SYNC charge: cap=%.0f A  grid_limit=%.0f A  V=%.2f V  → %.0f A",
+            SYNC_MAX_CURRENT, grid_limit, battery_voltage, target,
+        )
+        return target
+
+    # State.UTI_CHARGING — apply SoC-taper and voltage-taper limits
     target = daily_charge_current
 
     SOC_LIMITS = [
@@ -452,6 +531,12 @@ def main() -> None:
     log.info("  Config file   : %s", CONFIG_PATH)
     log.info("  Time periods  : %s",
              "  ".join(f"{p['name']} ({p['start']}–{p['end']})" for p in TIME_PERIODS))
+    log.info(
+        "  Full charge   : balance≥%.1fV/≤%.0fA, sync %s–%s, max %.0fA, ceiling %.1fV, timeout %d min",
+        BALANCE_ENTRY_VOLTAGE, BALANCE_ENTRY_CURRENT,
+        SYNC_START_TIME, SYNC_DEADLINE, SYNC_MAX_CURRENT,
+        SYNC_VOLTAGE_CEILING, SYNC_TIMEOUT_MINUTES,
+    )
     log.info("=" * 60)
 
     last_charge_current:  float                  = 0.0
@@ -464,9 +549,11 @@ def main() -> None:
     battery_voltage:      float                  = 52.0
     last_sbu_to_uti_time: datetime | None        = None
     consecutive_failures: int                    = 0
+    charge_mode:          ChargeMode             = ChargeMode.NORMAL
+    sync_start_time:      datetime | None        = None
 
     while True:
-        daily_charge_current, target_soc = load_targets_from_file(
+        daily_charge_current, target_soc, full_charge = load_targets_from_file(
             daily_charge_current, target_soc
         )
 
@@ -570,6 +657,7 @@ def main() -> None:
                 time_period,
                 daily_charge_current,
                 last_sbu_to_uti_time,
+                full_charge_active=full_charge,
             )
 
             if current_state != prev_state:
@@ -595,6 +683,84 @@ def main() -> None:
             current_state = State.UTI_STOPPED
         # else: hold current state — don't transition on stale data
 
+        # ── Full-charge phase progression ─────────────────────────────
+        # Only progresses with fresh data, in cheap period, while flag is set.
+        # NORMAL → BULK → BALANCE → SYNC → done (clears flag, returns to NORMAL).
+        if limited_data and full_charge and time_period == "cheap":
+            now = datetime.now()
+            sync_start = _str_to_time(SYNC_START_TIME)
+            sync_deadline = _str_to_time(SYNC_DEADLINE)
+
+            if charge_mode == ChargeMode.NORMAL:
+                charge_mode = ChargeMode.BULK
+                log.info(
+                    "Full charge: NORMAL → BULK (V=%.2f V, target_SoC=%.0f%%)",
+                    battery_voltage, target_soc,
+                )
+
+            if charge_mode == ChargeMode.BULK:
+                if (battery_voltage >= BALANCE_ENTRY_VOLTAGE
+                        and last_charge_current <= BALANCE_ENTRY_CURRENT):
+                    charge_mode = ChargeMode.BALANCE
+                    log.info(
+                        "Full charge: BULK → BALANCE (V=%.2f V ≥ %.2f, I=%.0f A ≤ %.0f)",
+                        battery_voltage, BALANCE_ENTRY_VOLTAGE,
+                        last_charge_current, BALANCE_ENTRY_CURRENT,
+                    )
+
+            if charge_mode in (ChargeMode.BULK, ChargeMode.BALANCE):
+                # Time-based BALANCE → SYNC transition: starts at SYNC_START_TIME.
+                # Also catches BULK that didn't reach BALANCE thresholds — still try SYNC nudge.
+                if now.time() >= sync_start and now.time() <= sync_deadline:
+                    prev_mode = charge_mode
+                    charge_mode = ChargeMode.SYNC
+                    sync_start_time = now
+                    log.info(
+                        "Full charge: %s → SYNC (time=%s, V=%.2f V)",
+                        prev_mode.value, now.strftime("%H:%M"), battery_voltage,
+                    )
+
+            if charge_mode == ChargeMode.SYNC:
+                completion_reason: str | None = None
+                if battery_soc is not None and battery_soc >= 100:
+                    completion_reason = f"BMS SoC reached 100% (V={battery_voltage:.2f} V)"
+                elif battery_voltage >= SYNC_VOLTAGE_CEILING:
+                    completion_reason = (
+                        f"voltage {battery_voltage:.2f} V hit ceiling {SYNC_VOLTAGE_CEILING:.2f} V"
+                    )
+                elif now.time() > sync_deadline:
+                    completion_reason = f"deadline {SYNC_DEADLINE} reached"
+                elif sync_start_time is not None:
+                    elapsed_min = (now - sync_start_time).total_seconds() / 60.0
+                    if elapsed_min >= SYNC_TIMEOUT_MINUTES:
+                        completion_reason = f"timeout after {elapsed_min:.1f} min"
+
+                if completion_reason:
+                    log.info("Full charge: SYNC complete — %s", completion_reason)
+                    _complete_full_charge()
+                    charge_mode = ChargeMode.NORMAL
+                    sync_start_time = None
+                    full_charge = False  # reflect cleared flag for the rest of this tick
+
+        elif limited_data and not full_charge and charge_mode != ChargeMode.NORMAL:
+            # Flag cleared externally (e.g., by daily_target rewrite) — reset local mode.
+            log.info(
+                "Full charge flag cleared from targets — resetting charge_mode %s → NORMAL",
+                charge_mode.value,
+            )
+            charge_mode = ChargeMode.NORMAL
+            sync_start_time = None
+
+        elif limited_data and full_charge and time_period != "cheap" and charge_mode != ChargeMode.NORMAL:
+            # Cheap period ended mid-progression — abort cleanly without clearing the flag
+            # (last_full_charge stays unchanged, so the trigger logic can retry next eligible night).
+            log.warning(
+                "Full charge: cheap period ended (now=%s, mode=%s) — aborting and resetting to NORMAL",
+                datetime.now().strftime("%H:%M"), charge_mode.value,
+            )
+            charge_mode = ChargeMode.NORMAL
+            sync_start_time = None
+
         # ── Output priority ───────────────────────────────────────────
         desired_priority = determine_output_priority(current_state)
         if last_output_priority != desired_priority:
@@ -609,7 +775,8 @@ def main() -> None:
         # ── Charge current (only with fresh data) ─────────────────────
         if limited_data:
             target_charge_current = adjust_battery_charge(
-                battery_soc, load_power, battery_voltage, daily_charge_current, current_state
+                battery_soc, load_power, battery_voltage, daily_charge_current, current_state,
+                charge_mode=charge_mode,
             )
             if last_charge_current != target_charge_current:
                 log.info(
