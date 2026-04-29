@@ -496,14 +496,19 @@ async def set_targets_form(
             targets = json.load(f)
         target_soc           = targets.get("target_soc", 90)
         daily_charge_current = targets.get("daily_charge_current", 0)
+        full_charge          = bool(targets.get("full_charge", False))
+        last_full_charge     = targets.get("last_full_charge") or "never"
         log.debug(
-            "/set_targets_form: loaded target_soc=%s  daily_charge_current=%s",
-            target_soc, daily_charge_current,
+            "/set_targets_form: loaded target_soc=%s  daily_charge_current=%s  "
+            "full_charge=%s  last_full_charge=%s",
+            target_soc, daily_charge_current, full_charge, last_full_charge,
         )
     except Exception as e:
         log.warning("/set_targets_form: could not read targets.json: %s — using defaults", e)
         target_soc           = 90
         daily_charge_current = 0
+        full_charge          = False
+        last_full_charge     = "never"
 
     return templates.TemplateResponse(
         "set_targets.html",
@@ -511,6 +516,8 @@ async def set_targets_form(
             "request":              request,
             "target_soc":           target_soc,
             "daily_charge_current": daily_charge_current,
+            "full_charge":          full_charge,
+            "last_full_charge":     last_full_charge,
         },
     )
 
@@ -520,6 +527,7 @@ async def set_targets(
     request: Request,
     target_soc: int           = Form(...),
     daily_charge_current: int = Form(...),
+    full_charge: bool         = Form(False),
     credentials: HTTPBasicCredentials = Depends(verify_credentials),
 ):
     errors: List[str] = []
@@ -527,6 +535,15 @@ async def set_targets(
         errors.append(f"target_soc must be 0–100 (got {target_soc})")
     if not (0 <= daily_charge_current <= 150):
         errors.append(f"daily_charge_current must be 0–150 A (got {daily_charge_current})")
+
+    # Read existing targets so last_full_charge (owned by battery_controller) is preserved
+    # — we only ever write the four user-facing keys plus whatever was already there.
+    try:
+        with open(CONFIG_PATH) as f:
+            existing = json.load(f)
+    except Exception:
+        existing = {}
+    last_full_charge = existing.get("last_full_charge") or "never"
 
     if errors:
         log.warning("/set_targets: validation error: %s", "; ".join(errors))
@@ -537,17 +554,22 @@ async def set_targets(
                 "message":              "Validation error: " + "; ".join(errors),
                 "target_soc":           target_soc,
                 "daily_charge_current": daily_charge_current,
+                "full_charge":          full_charge,
+                "last_full_charge":     last_full_charge,
             },
             status_code=400,
         )
 
-    targets = {"target_soc": target_soc, "daily_charge_current": daily_charge_current}
+    targets = dict(existing)
+    targets["target_soc"]           = target_soc
+    targets["daily_charge_current"] = daily_charge_current
+    targets["full_charge"]          = full_charge
     try:
         with open(CONFIG_PATH, "w") as f:
             json.dump(targets, f)
         log.info(
-            "/set_targets: saved target_soc=%d%%  daily_charge_current=%d A",
-            target_soc, daily_charge_current,
+            "/set_targets: saved target_soc=%d%%  daily_charge_current=%d A  full_charge=%s",
+            target_soc, daily_charge_current, full_charge,
         )
         return templates.TemplateResponse(
             "set_targets.html",
@@ -555,10 +577,13 @@ async def set_targets(
                 "request": request,
                 "message": (
                     f"Targets updated: target_soc={target_soc}%, "
-                    f"daily_charge_current={daily_charge_current} A"
+                    f"daily_charge_current={daily_charge_current} A, "
+                    f"full_charge={full_charge}"
                 ),
                 "target_soc":           target_soc,
                 "daily_charge_current": daily_charge_current,
+                "full_charge":          full_charge,
+                "last_full_charge":     last_full_charge,
             },
         )
     except Exception as e:
@@ -570,6 +595,8 @@ async def set_targets(
                 "message":              f"Error saving targets: {e}",
                 "target_soc":           target_soc,
                 "daily_charge_current": daily_charge_current,
+                "full_charge":          full_charge,
+                "last_full_charge":     last_full_charge,
             },
             status_code=500,
         )
