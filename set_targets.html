@@ -8,6 +8,10 @@
         form { max-width: 300px; margin: auto; }
         label, input { display: block; margin: 10px 0; }
         input[type="number"] { width: 100%; padding: 5px; }
+        input[type="checkbox"] { display: inline-block; margin-right: 8px; vertical-align: middle; }
+        .checkbox-row { margin: 14px 0; }
+        .checkbox-row label { display: inline-block; margin: 0; }
+        .info { font-size: 0.9em; color: #555; margin: 6px 0 14px; }
         input[type="submit"] { background-color: #4CAF50; color: white; padding: 10px; border: none; cursor: pointer; }
         .message { color: green; text-align: center; }
     </style>
@@ -21,6 +25,14 @@
         <label for="daily_charge_current">Daily Charge Current (A):</label>
         <input type="number" id="daily_charge_current" name="daily_charge_current" value="{{ daily_charge_current }}"
                min="0" max="150" required>
+        <div class="checkbox-row">
+            <label for="full_charge">
+                <input type="checkbox" id="full_charge" name="full_charge" value="true"
+                       {% if full_charge %}checked{% endif %}>
+                Full charge (overnight LFP balance / SoC sync)
+            </label>
+        </div>
+        <p class="info">Last full charge: <strong>{{ last_full_charge }}</strong></p>
         <input type="submit" value="Update">
     </form>
     {% if message %}
