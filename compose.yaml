@@ -62,11 +62,15 @@ services:
     volumes:
       - .:/app
     # Grant access to USB-serial adapters only — safer than privileged: true.
-    # Adjust device paths if your adapters appear on different /dev/ttyUSBN nodes
-    # (check with: ls -la /dev/ttyUSB*  or  python3 -m serial.tools.list_ports -v)
+    # PowMr uses a CH340 chip → /dev/ttyUSB*
+    # Growatt uses XR21B1411  → /dev/ttyACM*
+    # If paths change after reboot, check with:
+    #   python3 -m serial.tools.list_ports -v
+    #   ls -la /dev/serial/by-id/
+    # For maximum stability, replace these with /dev/serial/by-id/ symlinks.
     devices:
       - /dev/ttyUSB0:/dev/ttyUSB0
-      - /dev/ttyUSB1:/dev/ttyUSB1
+      - /dev/ttyACM0:/dev/ttyACM0
     group_add:
       - dialout
     healthcheck:
