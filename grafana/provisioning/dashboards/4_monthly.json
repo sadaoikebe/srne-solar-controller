@@ -1,0 +1,295 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "One row per month. Values = cumulative last-of-month minus last-of-previous-month.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "icon": "dashboard",
+      "title": "Real-Time",
+      "tooltip": "Live data",
+      "type": "link",
+      "url": "/d/solar-realtime/solar-real-time"
+    },
+    {
+      "icon": "dashboard",
+      "title": "Graphs",
+      "tooltip": "Historical trends",
+      "type": "link",
+      "url": "/d/solar-graphs/solar-historical-graphs"
+    },
+    {
+      "icon": "dashboard",
+      "title": "Daily Stats",
+      "tooltip": "Daily table",
+      "type": "link",
+      "url": "/d/solar-daily/solar-daily-statistics"
+    },
+    {
+      "icon": "dashboard",
+      "title": "Monthly Stats",
+      "tooltip": "Monthly table",
+      "type": "link",
+      "url": "/d/solar-monthly/solar-monthly-statistics"
+    }
+  ],
+  "panels": [
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "srne-influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          },
+          "custom": {
+            "align": "center",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "kwatth"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "_time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Month"
+              },
+              {
+                "id": "custom.width",
+                "value": 110
+              },
+              {
+                "id": "unit",
+                "value": "time:YYYY-MM"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto"
+                }
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "PV (kWh)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FADE2A"
+                }
+              },
+              {
+                "id": "max",
+                "value": 1000
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "custom.align",
+                "value": "left"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Load (kWh)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5794F2"
+                }
+              },
+              {
+                "id": "max",
+                "value": 1800
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "custom.align",
+                "value": "left"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Batt Charge (kWh)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#73BF69"
+                }
+              },
+              {
+                "id": "max",
+                "value": 800
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "custom.align",
+                "value": "left"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Month"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "import \"math\"\nimport \"timezone\"\nimport \"array\"\n\njst = timezone.location(name: \"Asia/Tokyo\")\n\nmonthly =\n  from(bucket: v.defaultBucket)\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n    |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n    |> filter(fn: (r) => r.name == \"pv_cumulative\" or r.name == \"pv3_cumulative\")\n    |> group(columns: [\"name\"])\n    |> aggregateWindow(every: 1mo, location: jst, fn: last, createEmpty: false)\n    |> keep(columns: [\"_time\", \"_value\", \"name\"])\n\nanchors =\n  array.from(rows: [\n    {_time: time(v: \"1970-01-01T00:00:00Z\"), _value: 0.0, name: \"pv_cumulative\"},\n    {_time: time(v: \"1970-01-01T00:00:00Z\"), _value: 0.0, name: \"pv3_cumulative\"},\n  ])\n    |> group(columns: [\"name\"])\n\nunion(tables: [monthly, anchors])\n  |> sort(columns: [\"_time\"])\n  |> difference()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: time(v: int(v: r._time) - 1),\n      \"PV (kWh)\": math.round(x: (\n        (if exists r.pv_cumulative  then r.pv_cumulative  else 0.0) +\n        (if exists r.pv3_cumulative then r.pv3_cumulative else 0.0)\n      ) * 10.0) / 10.0\n  }))\n  |> sort(columns: [\"_time\"], desc: true)\n",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "import \"math\"\nimport \"timezone\"\nimport \"array\"\n\njst = timezone.location(name: \"Asia/Tokyo\")\n\nmonthly =\n  from(bucket: v.defaultBucket)\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n    |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\" and r.name == \"load_cumulative\")\n    |> group()\n    |> aggregateWindow(every: 1mo, location: jst, fn: last, createEmpty: false)\n    |> keep(columns: [\"_time\", \"_value\"])\n\nanchor =\n  array.from(rows: [{_time: time(v: \"1970-01-01T00:00:00Z\"), _value: 0.0}])\n\nunion(tables: [monthly, anchor])\n  |> sort(columns: [\"_time\"])\n  |> difference()\n  |> map(fn: (r) => ({\n      _time: time(v: int(v: r._time) - 1),\n      \"Load (kWh)\": math.round(x: (if r._value >= 0.0 then r._value else 0.0) * 10.0) / 10.0\n  }))\n  |> sort(columns: [\"_time\"], desc: true)\n",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "import \"math\"\nimport \"timezone\"\nimport \"array\"\n\njst = timezone.location(name: \"Asia/Tokyo\")\n\nmonthly =\n  from(bucket: v.defaultBucket)\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n    |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\" and r.name == \"batt_charge_cumulative\")\n    |> group()\n    |> aggregateWindow(every: 1mo, location: jst, fn: last, createEmpty: false)\n    |> keep(columns: [\"_time\", \"_value\"])\n\nanchor =\n  array.from(rows: [{_time: time(v: \"1970-01-01T00:00:00Z\"), _value: 0.0}])\n\nunion(tables: [monthly, anchor])\n  |> sort(columns: [\"_time\"])\n  |> difference()\n  |> map(fn: (r) => ({\n      _time: time(v: int(v: r._time) - 1),\n      \"Batt Charge (kWh)\": math.round(x: (if r._value >= 0.0 then r._value else 0.0) * 10.0) / 10.0\n  }))\n  |> sort(columns: [\"_time\"], desc: true)\n",
+          "refId": "C"
+        }
+      ],
+      "title": "Monthly Statistics — One Row per Month",
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "_time",
+            "mode": "outer"
+          }
+        }
+      ],
+      "type": "table"
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": [
+    "solar",
+    "monthly",
+    "stats"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "2000-01-01T00:00:00Z",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Solar Monitor — Monthly Statistics",
+  "uid": "solar-monthly",
+  "version": 1,
+  "weekStart": ""
+}

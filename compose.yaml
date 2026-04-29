@@ -1,31 +1,74 @@
 services:
   influxdb:
-    image: influxdb:1.8
-    container_name: influxdb1
+    image: influxdb:2.7
+    container_name: influxdb
     restart: unless-stopped
     ports: ["8086:8086"]
     environment:
       - TZ=${TZ}
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=${USERNAME}
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${PASSWORD}
+      - DOCKER_INFLUXDB_INIT_ORG=${INFLUXDB2_ORG}
+      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUXDB2_BUCKET}
+      - DOCKER_INFLUXDB_INIT_RETENTION=${INFLUXDB2_RETENTION:-0}
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB2_TOKEN}
     volumes:
-      - /var/lib/influxdb:/var/lib/influxdb
-      - /etc/influxdb:/etc/influxdb:ro
+      - /var/lib/influxdb2:/var/lib/influxdb2
+      - /etc/influxdb2:/etc/influxdb2
+    healthcheck:
+      test: ["CMD", "influx", "ping", "--host", "http://localhost:8086"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  grafana:
+    image: grafana/grafana:12.4.2
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${USERNAME}
+      - GF_SECURITY_ADMIN_PASSWORD=${PASSWORD}
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      - INFLUXDB2_ORG=${INFLUXDB2_ORG}
+      - INFLUXDB2_BUCKET=${INFLUXDB2_BUCKET}
+      - INFLUXDB2_TOKEN=${INFLUXDB2_TOKEN}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - influxdb
 
   modbus_api:
     build: .
     image: srne-app:latest
     container_name: modbus_api
     restart: unless-stopped
-    privileged: true
     command: uvicorn modbus_api:app --host 0.0.0.0 --port ${MODBUS_API_PORT:-5004}
     environment:
-      - BASIC_AUTH_USER=${BASIC_AUTH_USER}
-      - BASIC_AUTH_PASS=${BASIC_AUTH_PASS}
+      - BASIC_AUTH_USER=${USERNAME}
+      - BASIC_AUTH_PASS=${PASSWORD}
       - MODBUS_API_PORT=${MODBUS_API_PORT:-5004}
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=${INFLUXDB2_TOKEN}
+      - INFLUX_ORG=${INFLUXDB2_ORG}
+      - INFLUX_BUCKET=${INFLUXDB2_BUCKET}
       - CONFIG_PATH=/app/targets.json
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     ports:
       - "${MODBUS_API_PORT:-5004}:${MODBUS_API_PORT:-5004}"
     volumes:
       - .:/app
+    # Grant access to USB-serial adapters only — safer than privileged: true.
+    # Adjust device paths if your adapters appear on different /dev/ttyUSBN nodes
+    # (check with: ls -la /dev/ttyUSB*  or  python3 -m serial.tools.list_ports -v)
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+      - /dev/ttyUSB1:/dev/ttyUSB1
+    group_add:
+      - dialout
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:5004/limited_registers || exit 1"]
       interval: 3s
@@ -37,12 +80,22 @@ services:
     image: srne-app:latest
     container_name: db_writer
     restart: unless-stopped
+    working_dir: /app
     command: python db_writer.py
+    environment:
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=${INFLUXDB2_TOKEN}
+      - INFLUX_ORG=${INFLUXDB2_ORG}
+      - INFLUX_BUCKET=${INFLUXDB2_BUCKET}
+      - MODBUS_API_PORT=${MODBUS_API_PORT:-5004}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - .:/app
     depends_on:
       modbus_api:
         condition: service_healthy
       influxdb:
-        condition: service_started
+        condition: service_healthy
 
   battery_controller:
     image: srne-app:latest
@@ -51,6 +104,10 @@ services:
     command: python battery_controller.py
     environment:
       - CONFIG_PATH=/app/targets.json
+      - MODBUS_API_PORT=${MODBUS_API_PORT:-5004}
+      - BASIC_AUTH_USER=${USERNAME}
+      - BASIC_AUTH_PASS=${PASSWORD}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
       - .:/app
     depends_on:
@@ -58,7 +115,7 @@ services:
         condition: service_healthy
 
   daily_target:
-    build: .
+    image: srne-app:latest
     container_name: daily_target
     restart: unless-stopped
     working_dir: /app
@@ -67,7 +124,12 @@ services:
     environment:
       - TZ=${TZ}
       - CONFIG_PATH=/app/targets.json
+      - MODBUS_API_PORT=${MODBUS_API_PORT:-5004}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     command: ["supercronic", "/app/crontab"]
     depends_on:
       modbus_api:
         condition: service_healthy
+
+volumes:
+  grafana-data:
