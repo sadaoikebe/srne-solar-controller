@@ -60,7 +60,7 @@
         "y": 0
       },
       "id": 1,
-      "title": "☀️  Solar Production",
+      "title": "\u2600\ufe0f  Solar Production",
       "type": "row"
     },
     {
@@ -189,7 +189,7 @@
           "refId": "A"
         }
       ],
-      "title": "PV Power — Total",
+      "title": "PV Power \u2014 Total",
       "type": "timeseries"
     },
     {
@@ -324,7 +324,7 @@
           "refId": "A"
         }
       ],
-      "title": "PV Power — All Strings",
+      "title": "PV Power \u2014 All Strings",
       "type": "timeseries"
     },
     {
@@ -459,7 +459,7 @@
           "refId": "A"
         }
       ],
-      "title": "PV Voltage — All Strings",
+      "title": "PV Voltage \u2014 All Strings",
       "type": "timeseries"
     },
     {
@@ -594,7 +594,7 @@
           "refId": "A"
         }
       ],
-      "title": "PV Current — All Strings",
+      "title": "PV Current \u2014 All Strings",
       "type": "timeseries"
     },
     {
@@ -606,7 +606,7 @@
         "y": 17
       },
       "id": 5,
-      "title": "🏠  Load & Grid",
+      "title": "\ud83c\udfe0  Load & Grid",
       "type": "row"
     },
     {
@@ -753,7 +753,7 @@
           "refId": "A"
         }
       ],
-      "title": "Load Power — L1 / L2 / Total",
+      "title": "Load Power \u2014 L1 / L2 / Total",
       "type": "timeseries"
     },
     {
@@ -899,7 +899,7 @@
           "refId": "A"
         }
       ],
-      "title": "Grid Power — L1 / L2 / Total  (+ = import)",
+      "title": "Grid Power \u2014 L1 / L2 / Total  (+ = import)",
       "type": "timeseries"
     },
     {
@@ -1084,7 +1084,7 @@
           "refId": "A"
         }
       ],
-      "title": "Grid Voltage — Grid vs Inverter",
+      "title": "Grid Voltage \u2014 Grid vs Inverter",
       "type": "timeseries"
     },
     {
@@ -1221,7 +1221,7 @@
           "refId": "A"
         }
       ],
-      "title": "Frequency — Grid vs Inverter",
+      "title": "Frequency \u2014 Grid vs Inverter",
       "type": "timeseries"
     },
     {
@@ -1233,7 +1233,7 @@
         "y": 34
       },
       "id": 10,
-      "title": "🔋  Battery",
+      "title": "\ud83d\udd0b  Battery",
       "type": "row"
     },
     {
@@ -1470,7 +1470,7 @@
           "refId": "A"
         }
       ],
-      "title": "Battery Voltage — PowMr / Growatt",
+      "title": "Battery Voltage \u2014 PowMr / Growatt",
       "type": "timeseries"
     },
     {
@@ -1616,7 +1616,7 @@
           "refId": "A"
         }
       ],
-      "title": "Battery Current — Total  (+ = charging)",
+      "title": "Battery Current \u2014 Total  (+ = charging)",
       "type": "timeseries"
     },
     {
@@ -1762,7 +1762,280 @@
           "refId": "A"
         }
       ],
-      "title": "Battery Power — Total  (+ = charging)",
+      "title": "Battery Power \u2014 Total  (+ = charging)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 51
+      },
+      "id": 100,
+      "title": "\ud83d\udcc8  Daily Energy (kWh)",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "srne-influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "drawStyle": "line"
+          },
+          "unit": "kwh",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total PV Daily"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 52
+      },
+      "id": 101,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"pv_powmr_daily\" or r.name == \"pv3_daily\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV PowMr Daily\": if exists r.pv_powmr_daily then r.pv_powmr_daily else 0.0,\n      \"PV Growatt Daily\": if exists r.pv3_daily then r.pv3_daily else 0.0,\n      \"Total PV Daily\": (if exists r.pv_powmr_daily then r.pv_powmr_daily else 0.0) + (if exists r.pv3_daily then r.pv3_daily else 0.0)\n  }))",
+          "refId": "A"
+        }
+      ],
+      "title": "Daily PV Generation",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "srne-influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "kwh",
+          "min": 0
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 52
+      },
+      "id": 102,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"batt_charge_daily\" or r.name == \"batt_discharge_daily\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"Charge Daily\": if exists r.batt_charge_daily then r.batt_charge_daily else 0.0,\n      \"Discharge Daily\": if exists r.batt_discharge_daily then r.batt_discharge_daily else 0.0\n  }))",
+          "refId": "A"
+        }
+      ],
+      "title": "Daily Battery Energy",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "srne-influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "kwh",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total Grid Import Daily"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 60
+      },
+      "id": 103,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"load_daily\" or r.name == \"grid_to_batt_daily\" or r.name == \"grid_to_load_daily\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"Load Daily\": if exists r.load_daily then r.load_daily else 0.0,\n      \"Grid to Battery Daily\": if exists r.grid_to_batt_daily then r.grid_to_batt_daily else 0.0,\n      \"Grid to Load Daily\": if exists r.grid_to_load_daily then r.grid_to_load_daily else 0.0,\n      \"Total Grid Import Daily\": (if exists r.grid_to_batt_daily then r.grid_to_batt_daily else 0.0) + (if exists r.grid_to_load_daily then r.grid_to_load_daily else 0.0)\n  }))",
+          "refId": "A"
+        }
+      ],
+      "title": "Daily Load & Grid Import",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 68
+      },
+      "id": 200,
+      "title": "\ud83d\udcca  Cumulative Energy (kWh)",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "srne-influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "kwh"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "PV Total"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 69
+      },
+      "id": 201,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"pv_cumulative\" or r.name == \"pv3_cumulative\" or r.name == \"load_cumulative\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV PowMr Total\": if exists r.pv_cumulative then r.pv_cumulative else 0.0,\n      \"PV Growatt Total\": if exists r.pv3_cumulative then r.pv3_cumulative else 0.0,\n      \"PV Total\": (if exists r.pv_cumulative then r.pv_cumulative else 0.0) + (if exists r.pv3_cumulative then r.pv3_cumulative else 0.0),\n      \"Load Total\": if exists r.load_cumulative then r.load_cumulative else 0.0\n  }))",
+          "refId": "A"
+        }
+      ],
+      "title": "Cumulative PV & Load",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "srne-influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "kwh"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 69
+      },
+      "id": 202,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"batt_charge_cumulative\" or r.name == \"batt_discharge_cumulative\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"Total Charge\": if exists r.batt_charge_cumulative then r.batt_charge_cumulative else 0.0,\n      \"Total Discharge\": if exists r.batt_discharge_cumulative then r.batt_discharge_cumulative else 0.0\n  }))",
+          "refId": "A"
+        }
+      ],
+      "title": "Cumulative Battery Energy",
       "type": "timeseries"
     }
   ],
@@ -1781,7 +2054,7 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Solar Monitor — Historical Graphs",
+  "title": "Solar Monitor \u2014 Historical Graphs",
   "uid": "solar-graphs",
   "version": 1,
   "weekStart": ""
