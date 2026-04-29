@@ -292,6 +292,21 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "PV4 (Growatt)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#B877D9",
+                  "mode": "fixed"
+                }
+              }
+            ]
           }
         ]
       },
@@ -320,7 +335,7 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /pv[1-4]_power/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV1 (PowMr)\":   if exists r.pv1_power then r.pv1_power else 0.0,\n      \"PV2 (PowMr)\":   if exists r.pv2_power then r.pv2_power else 0.0,\n      \"PV3 (Growatt)\": if exists r.pv3_power then r.pv3_power else 0.0\n  }))",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /pv[1-4]_power/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV1 (PowMr)\":   if exists r.pv1_power then r.pv1_power else 0.0,\n      \"PV2 (PowMr)\":   if exists r.pv2_power then r.pv2_power else 0.0,\n      \"PV3 (Growatt)\": if exists r.pv3_power then r.pv3_power else 0.0,\n      \"PV4 (Growatt)\": if exists r.pv4_power then r.pv4_power else 0.0\n  }))",
           "refId": "A"
         }
       ],
@@ -427,6 +442,21 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "PV4 (Growatt)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#B877D9",
+                  "mode": "fixed"
+                }
+              }
+            ]
           }
         ]
       },
@@ -455,7 +485,7 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /^pv[1-4]_voltage$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV1 (PowMr)\":   if exists r.pv1_voltage then r.pv1_voltage else 0.0,\n      \"PV2 (PowMr)\":   if exists r.pv2_voltage then r.pv2_voltage else 0.0,\n      \"PV3 (Growatt)\": if exists r.pv3_voltage then r.pv3_voltage else 0.0\n  }))",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /^pv[1-4]_voltage$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV1 (PowMr)\":   if exists r.pv1_voltage then r.pv1_voltage else 0.0,\n      \"PV2 (PowMr)\":   if exists r.pv2_voltage then r.pv2_voltage else 0.0,\n      \"PV3 (Growatt)\": if exists r.pv3_voltage then r.pv3_voltage else 0.0,\n      \"PV4 (Growatt)\": if exists r.pv4_voltage then r.pv4_voltage else 0.0\n  }))",
           "refId": "A"
         }
       ],
@@ -562,6 +592,21 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "PV4 (Growatt)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#B877D9",
+                  "mode": "fixed"
+                }
+              }
+            ]
           }
         ]
       },
@@ -590,7 +635,7 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /^pv[1-4]_current$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV1 (PowMr)\":   if exists r.pv1_current then r.pv1_current else 0.0,\n      \"PV2 (PowMr)\":   if exists r.pv2_current then r.pv2_current else 0.0,\n      \"PV3 (Growatt)\": if exists r.pv3_current then r.pv3_current else 0.0\n  }))",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /^pv[1-4]_current$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV1 (PowMr)\":   if exists r.pv1_current then r.pv1_current else 0.0,\n      \"PV2 (PowMr)\":   if exists r.pv2_current then r.pv2_current else 0.0,\n      \"PV3 (Growatt)\": if exists r.pv3_current then r.pv3_current else 0.0,\n      \"PV4 (Growatt)\": if exists r.pv4_current then r.pv4_current else 0.0\n  }))",
           "refId": "A"
         }
       ],
@@ -1829,7 +1874,7 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"pv_powmr_daily\" or r.name == \"pv3_daily\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV PowMr Daily\": if exists r.pv_powmr_daily then r.pv_powmr_daily else 0.0,\n      \"PV Growatt Daily\": if exists r.pv3_daily then r.pv3_daily else 0.0,\n      \"Total PV Daily\": (if exists r.pv_powmr_daily then r.pv_powmr_daily else 0.0) + (if exists r.pv3_daily then r.pv3_daily else 0.0)\n  }))",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"pv_powmr_daily\" or r.name == \"pv3_daily\" or r.name == \"pv4_daily\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV PowMr Daily\":   if exists r.pv_powmr_daily then r.pv_powmr_daily else 0.0,\n      \"PV3 Daily (Growatt)\": if exists r.pv3_daily then r.pv3_daily else 0.0,\n      \"PV4 Daily (Growatt)\": if exists r.pv4_daily then r.pv4_daily else 0.0,\n      \"Total PV Daily\":\n        (if exists r.pv_powmr_daily then r.pv_powmr_daily else 0.0) +\n        (if exists r.pv3_daily then r.pv3_daily else 0.0) +\n        (if exists r.pv4_daily then r.pv4_daily else 0.0)\n  }))",
           "refId": "A"
         }
       ],
@@ -1873,7 +1918,7 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"batt_charge_daily\" or r.name == \"batt_discharge_daily\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"Charge Daily\": if exists r.batt_charge_daily then r.batt_charge_daily else 0.0,\n      \"Discharge Daily\": if exists r.batt_discharge_daily then r.batt_discharge_daily else 0.0\n  }))",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"batt_charge_daily\" or r.name == \"batt_discharge_daily\" or r.name == \"batt_charge_daily_growatt\" or r.name == \"batt_discharge_daily_growatt\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"Charge Daily (PowMr)\":   if exists r.batt_charge_daily then r.batt_charge_daily else 0.0,\n      \"Charge Daily (Growatt)\": if exists r.batt_charge_daily_growatt then r.batt_charge_daily_growatt else 0.0,\n      \"Charge Daily (Total)\":\n        (if exists r.batt_charge_daily then r.batt_charge_daily else 0.0) +\n        (if exists r.batt_charge_daily_growatt then r.batt_charge_daily_growatt else 0.0),\n      \"Discharge Daily (PowMr)\":   if exists r.batt_discharge_daily then r.batt_discharge_daily else 0.0,\n      \"Discharge Daily (Growatt)\": if exists r.batt_discharge_daily_growatt then r.batt_discharge_daily_growatt else 0.0,\n      \"Discharge Daily (Total)\":\n        (if exists r.batt_discharge_daily then r.batt_discharge_daily else 0.0) +\n        (if exists r.batt_discharge_daily_growatt then r.batt_discharge_daily_growatt else 0.0)\n  }))",
           "refId": "A"
         }
       ],
@@ -1992,7 +2037,7 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"pv_cumulative\" or r.name == \"pv3_cumulative\" or r.name == \"load_cumulative\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV PowMr Total\": if exists r.pv_cumulative then r.pv_cumulative else 0.0,\n      \"PV Growatt Total\": if exists r.pv3_cumulative then r.pv3_cumulative else 0.0,\n      \"PV Total\": (if exists r.pv_cumulative then r.pv_cumulative else 0.0) + (if exists r.pv3_cumulative then r.pv3_cumulative else 0.0),\n      \"Load Total\": if exists r.load_cumulative then r.load_cumulative else 0.0\n  }))",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"pv_cumulative\" or r.name == \"pv3_cumulative\" or r.name == \"pv4_cumulative\" or r.name == \"load_cumulative\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"PV PowMr Total\":  if exists r.pv_cumulative then r.pv_cumulative else 0.0,\n      \"PV3 Total (Growatt)\": if exists r.pv3_cumulative then r.pv3_cumulative else 0.0,\n      \"PV4 Total (Growatt)\": if exists r.pv4_cumulative then r.pv4_cumulative else 0.0,\n      \"PV Total\":\n        (if exists r.pv_cumulative then r.pv_cumulative else 0.0) +\n        (if exists r.pv3_cumulative then r.pv3_cumulative else 0.0) +\n        (if exists r.pv4_cumulative then r.pv4_cumulative else 0.0),\n      \"Load Total\": if exists r.load_cumulative then r.load_cumulative else 0.0\n  }))",
           "refId": "A"
         }
       ],
@@ -2031,7 +2076,7 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"batt_charge_cumulative\" or r.name == \"batt_discharge_cumulative\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"Total Charge\": if exists r.batt_charge_cumulative then r.batt_charge_cumulative else 0.0,\n      \"Total Discharge\": if exists r.batt_discharge_cumulative then r.batt_discharge_cumulative else 0.0\n  }))",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"batt_charge_cumulative\" or r.name == \"batt_discharge_cumulative\" or r.name == \"batt_charge_cumulative_growatt\" or r.name == \"batt_discharge_cumulative_growatt\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"Charge (PowMr)\":   if exists r.batt_charge_cumulative then r.batt_charge_cumulative else 0.0,\n      \"Charge (Growatt)\": if exists r.batt_charge_cumulative_growatt then r.batt_charge_cumulative_growatt else 0.0,\n      \"Charge Total\":\n        (if exists r.batt_charge_cumulative then r.batt_charge_cumulative else 0.0) +\n        (if exists r.batt_charge_cumulative_growatt then r.batt_charge_cumulative_growatt else 0.0),\n      \"Discharge (PowMr)\":   if exists r.batt_discharge_cumulative then r.batt_discharge_cumulative else 0.0,\n      \"Discharge (Growatt)\": if exists r.batt_discharge_cumulative_growatt then r.batt_discharge_cumulative_growatt else 0.0,\n      \"Discharge Total\":\n        (if exists r.batt_discharge_cumulative then r.batt_discharge_cumulative else 0.0) +\n        (if exists r.batt_discharge_cumulative_growatt then r.batt_discharge_cumulative_growatt else 0.0)\n  }))",
           "refId": "A"
         }
       ],
