@@ -21,6 +21,12 @@
 #
 # Progress is recorded in a separate file (.migrate_growatt_progress.json)
 # so it does NOT collide with any prior migration progress.
+#
+# Environment: v1 has been decommissioned, so this script reads from a
+# temporary InfluxDB 1.8 container that mounts a *copy* of the preserved
+# v1 data. Connection details are env-driven (defaults assume a local
+# 1.8 container on port 8087). See the README/notes accompanying this
+# script for the exact docker recipe.
 
 import argparse
 import json
@@ -39,21 +45,24 @@ from influxdb_client.client.write_api import SYNCHRONOUS
 load_dotenv()
 
 # ── InfluxDB 1.x (source) ─────────────────────────────────────────────────
-V1_HOST         = "localhost"
-V1_PORT         = 8086
-V1_DB           = "mysolardb"
+# v1 is no longer running natively. The expected setup is a temporary
+# InfluxDB 1.8 docker container bound to 127.0.0.1:8087, with a *copy* of
+# the preserved /var/lib/influxdb mounted rw. The originals stay untouched.
+V1_HOST         = os.getenv("INFLUXDB1_HOST", "127.0.0.1")
+V1_PORT         = int(os.getenv("INFLUXDB1_PORT", "8087"))
+V1_DB           = os.getenv("INFLUXDB1_DB",   "mysolardb")
 MEASUREMENT_SRC = "registers"
 
 # ── InfluxDB 2.x (destination) ────────────────────────────────────────────
-V2_URL          = "http://192.168.1.216:8086"
+V2_URL          = os.getenv("INFLUXDB2_URL", "http://localhost:8086")
 V2_ORG          = os.getenv("INFLUXDB2_ORG")
 V2_BUCKET       = os.getenv("INFLUXDB2_BUCKET")
 V2_TOKEN        = os.getenv("INFLUXDB2_TOKEN")
 MEASUREMENT_DST = "modbus"
 
 # ── Migration window ──────────────────────────────────────────────────────
-TIME_START = "2025-01-01T00:00:00Z"
-TIME_STOP  = "2026-01-01T00:00:00Z"
+TIME_START = "2024-11-01T00:00:00Z"
+TIME_STOP  = "2026-05-01T00:00:00Z"
 CHUNK_DAYS = 1
 
 # ── Schema and progress ───────────────────────────────────────────────────
