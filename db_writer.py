@@ -200,15 +200,20 @@ def write_points(points: List[Point]) -> None:
 # ── Timing ────────────────────────────────────────────────────────────────────
 
 
-def wait_until_next_minute() -> datetime:
-    """Sleep until the start of the next wall-clock minute."""
-    now         = datetime.now()
-    next_minute = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
-    delay       = (next_minute - now).total_seconds()
+SAMPLE_INTERVAL_SECONDS: int = 30
+
+
+def wait_until_next_tick() -> datetime:
+    """Sleep until the next wall-clock tick aligned to SAMPLE_INTERVAL_SECONDS."""
+    now      = datetime.now()
+    seconds  = now.second + now.microsecond / 1_000_000
+    next_off = (int(seconds // SAMPLE_INTERVAL_SECONDS) + 1) * SAMPLE_INTERVAL_SECONDS
+    nxt      = now.replace(second=0, microsecond=0) + timedelta(seconds=next_off)
+    delay    = (nxt - now).total_seconds()
     if delay > 0:
-        log.debug("Sleeping %.1f s until next minute boundary", delay)
+        log.debug("Sleeping %.1f s until next %ds boundary", delay, SAMPLE_INTERVAL_SECONDS)
         time.sleep(delay)
-    return next_minute
+    return nxt
 
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
@@ -223,10 +228,10 @@ def main() -> None:
     log.info("=" * 60)
 
     schema = load_schema(SCHEMA_PATH)
-    wait_until_next_minute()
+    wait_until_next_tick()
 
     while True:
-        log.debug("Minute tick at %s", datetime.now().strftime("%H:%M"))
+        log.debug("Tick at %s", datetime.now().strftime("%H:%M:%S"))
 
         # Capture timestamp *before* the fetch so InfluxDB points reflect
         # when the measurement was initiated, not when it was processed.
@@ -248,11 +253,11 @@ def main() -> None:
                 log.error("Failed to process or write data: %s", e)
         else:
             log.warning(
-                "No register data available at %s — skipping this minute (data gap)",
-                datetime.now().strftime("%H:%M"),
+                "No register data available at %s — skipping this tick (data gap)",
+                datetime.now().strftime("%H:%M:%S"),
             )
 
-        wait_until_next_minute()
+        wait_until_next_tick()
 
 
 if __name__ == "__main__":

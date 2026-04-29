@@ -496,8 +496,9 @@ async def set_targets_form(
     try:
         with open(CONFIG_PATH) as f:
             targets = json.load(f)
-        target_soc           = targets.get("target_soc", 90)
-        daily_charge_current = targets.get("daily_charge_current", 0)
+        # Coerce to int so the form (and confirmation message) never show "80.0".
+        target_soc           = int(targets.get("target_soc", 90))
+        daily_charge_current = int(targets.get("daily_charge_current", 0))
         full_charge          = bool(targets.get("full_charge", False))
         last_full_charge     = targets.get("last_full_charge") or "never"
         log.debug(
