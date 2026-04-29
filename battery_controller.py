@@ -49,6 +49,9 @@ GRID_MAX_POWER_W: float    = 9000.0    # Maximum grid power budget (W)
 HYSTERESIS_SOC:   float    = 2.0       # SoC hysteresis band (%)
 CUTOFF_SOC:       float    = 9.0       # Emergency SoC floor (%)
 SBU_TO_UTI_COOLDOWN_S: int = 30 * 60   # Minimum seconds between SBU→UTI switches
+FAIL_SAFE_TICKS:       int = 60        # After this many consecutive fetch failures
+                                       # (60 × 5 s = 5 min), force SBU → UTI_STOPPED
+                                       # to stop discharging the battery without monitoring.
 
 # ── Runtime configuration ─────────────────────────────────────────────────────
 
@@ -457,7 +460,7 @@ def main() -> None:
     last_output_priority: OutputPriority | None  = None
     battery_soc:          float | None           = None
     estimated_soc:        float | None           = None
-    current_state:        State                  = State.SBU
+    current_state:        State                  = State.UTI_STOPPED  # safe default until first data
     battery_voltage:      float                  = 52.0
     last_sbu_to_uti_time: datetime | None        = None
     consecutive_failures: int                    = 0
@@ -468,6 +471,16 @@ def main() -> None:
         )
 
         limited_data = fetch_registers()
+
+        # Validate all required keys are present before parsing.
+        if limited_data is not None:
+            _REQUIRED_KEYS = ("0x0100", "0x0101", "0x0102", "0x021C", "0x0234")
+            missing = [k for k in _REQUIRED_KEYS if k not in limited_data]
+            if missing:
+                log.warning(
+                    "Register response missing keys %s — treating as fetch failure", missing
+                )
+                limited_data = None
 
         if limited_data:
             if consecutive_failures > 0:
@@ -539,38 +552,50 @@ def main() -> None:
                     consecutive_failures, consecutive_failures * POLL_INTERVAL_S,
                 )
             last_battery_soc = battery_soc
-            load_power       = 0.0
-            battery_voltage  = 53.0
 
-        time_period  = get_time_period()
-        prev_state   = current_state
+        # ── State transitions ─────────────────────────────────────────
+        # Only evaluate the state machine with fresh data.  On fetch failure
+        # we hold the current state to avoid acting on stale values.  After a
+        # sustained outage (FAIL_SAFE_TICKS), force a safe fallback.
+        prev_state = current_state
 
-        current_state, daily_charge_current, last_sbu_to_uti_time = determine_next_state(
-            current_state,
-            estimated_soc,
-            target_soc,
-            battery_voltage,
-            time_period,
-            daily_charge_current,
-            last_sbu_to_uti_time,
-        )
+        if limited_data:
+            time_period = get_time_period()
 
-        # Log state transition at INFO, steady-state at DEBUG
-        if current_state != prev_state:
-            log.info(
-                "State: %s → %s  (est_SoC=%.1f%%  V=%.1f V  period=%s)",
-                prev_state.value, current_state.value,
-                estimated_soc if estimated_soc is not None else 0.0,
-                battery_voltage, time_period,
-            )
-        else:
-            log.debug(
-                "State: %s  est_SoC=%.1f%%  V=%.1f V  target_SoC=%.0f%%  period=%s",
-                current_state.value,
-                estimated_soc if estimated_soc is not None else 0.0,
-                battery_voltage, target_soc, time_period,
+            current_state, daily_charge_current, last_sbu_to_uti_time = determine_next_state(
+                current_state,
+                estimated_soc,
+                target_soc,
+                battery_voltage,
+                time_period,
+                daily_charge_current,
+                last_sbu_to_uti_time,
             )
 
+            if current_state != prev_state:
+                log.info(
+                    "State: %s → %s  (est_SoC=%.1f%%  V=%.1f V  period=%s)",
+                    prev_state.value, current_state.value,
+                    estimated_soc if estimated_soc is not None else 0.0,
+                    battery_voltage, time_period,
+                )
+            else:
+                log.debug(
+                    "State: %s  est_SoC=%.1f%%  V=%.1f V  target_SoC=%.0f%%  period=%s",
+                    current_state.value,
+                    estimated_soc if estimated_soc is not None else 0.0,
+                    battery_voltage, target_soc, time_period,
+                )
+        elif consecutive_failures >= FAIL_SAFE_TICKS and current_state == State.SBU:
+            log.warning(
+                "Forcing SBU → UTI_STOPPED: no register data for %d s — "
+                "refusing to discharge battery without monitoring",
+                consecutive_failures * POLL_INTERVAL_S,
+            )
+            current_state = State.UTI_STOPPED
+        # else: hold current state — don't transition on stale data
+
+        # ── Output priority ───────────────────────────────────────────
         desired_priority = determine_output_priority(current_state)
         if last_output_priority != desired_priority:
             log.info(
@@ -578,9 +603,10 @@ def main() -> None:
                 last_output_priority.name if last_output_priority is not None else "None",
                 desired_priority.name,
             )
-            set_output_priority(desired_priority)
-            last_output_priority = desired_priority
+            if set_output_priority(desired_priority):
+                last_output_priority = desired_priority
 
+        # ── Charge current (only with fresh data) ─────────────────────
         if limited_data:
             target_charge_current = adjust_battery_charge(
                 battery_soc, load_power, battery_voltage, daily_charge_current, current_state
@@ -590,8 +616,8 @@ def main() -> None:
                     "Charge current: %.0f A → %.0f A",
                     last_charge_current, target_charge_current,
                 )
-                set_charge_current(target_charge_current)
-                last_charge_current = target_charge_current
+                if set_charge_current(target_charge_current):
+                    last_charge_current = target_charge_current
 
         time.sleep(POLL_INTERVAL_S)
 

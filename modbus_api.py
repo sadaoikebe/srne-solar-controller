@@ -182,6 +182,15 @@ def get_modbus_client(
 
 # Module-level clients — found once at startup.
 # connect() / close() are called per-request to keep the shared bus clean.
+#
+# CAUTION: There is no lock protecting concurrent access to the serial bus.
+# If two HTTP requests arrive simultaneously they will both call connect()
+# on the same ModbusSerialClient, which is a race condition.  In practice
+# this has never triggered because a single uvicorn worker serialises
+# request handling and all internal callers (db_writer, battery_controller,
+# daily_target) poll at non-overlapping intervals.  If the deployment ever
+# changes to multiple workers or concurrent external callers, add an
+# asyncio.Lock per device (one for `modbus`, one for `modbus2`).
 modbus  = get_modbus_client(vid=6790,  pid=29987, label="PowMr")    # PowMr inverter
 modbus2 = get_modbus_client(vid=1250,  pid=5137,  label="Growatt")  # Growatt inverter
 
