@@ -64,11 +64,18 @@ class ChargingPriority(IntEnum):
 # ── Register maps ─────────────────────────────────────────────────────────────
 
 POWMR_HOLDING_BLOCKS: Tuple[Tuple[int, int], ...] = (
-    (0x0100, 32),   # 0x0100–0x011F
-    (0x0200, 32),   # 0x0200–0x021F
-    (0x0220, 32),   # 0x0220–0x023F
-    (0xF000, 32),   # 0xF000–0xF01F
-    (0xF020, 32),   # 0xF020–0xF03F
+    # Read only the ranges that contain registers in POWMR_REQUIRED.
+    # Bulk reads (count=32) fail with IllegalAddress when the block
+    # spans non-existent registers on some PowMr models.
+    (0x0100, 3),    # 0x0100–0x0102  battery SoC, voltage, current
+    (0x0107, 3),    # 0x0107–0x0109  PV1 voltage, current, power
+    (0x010F, 3),    # 0x010F–0x0111  PV2 voltage, current, power
+    (0x0213, 10),   # 0x0213–0x021C  grid/inverter V & freq, load L1
+    (0x022A, 3),    # 0x022A–0x022C  grid V L2, inverter V L2
+    (0x0232, 3),    # 0x0232–0x0234  load active L2, load apparent L2
+    (0x023D, 2),    # 0x023D–0x023E  grid power L1, L2
+    (0xF02D, 4),    # 0xF02D–0xF030  daily counters
+    (0xF034, 10),   # 0xF034–0xF03D  cumulative + daily grid/batt
 )
 
 GROWATT_INPUT_BLOCKS: Tuple[Tuple[int, int], ...] = (
