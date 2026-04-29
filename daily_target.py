@@ -119,19 +119,68 @@ def determine_weather_tier(weather_code: int) -> int:
 # Indexed by month (1–12), five tiers (tier 1 = sunniest → tier 5 = worst).
 
 MONTHLY_TARGET_SOC_TABLE: dict[int, list[int]] = {
-    1:  [55, 60, 70, 85, 101],
-    2:  [50, 55, 65, 80, 101],
-    3:  [40, 45, 60, 75, 101],
-    4:  [30, 35, 45, 60,  70],
-    5:  [25, 30, 35, 40,  60],
-    6:  [30, 35, 40, 55,  70],
-    7:  [45, 50, 55, 65, 101],
-    8:  [45, 50, 55, 65, 101],
-    9:  [35, 40, 45, 60,  80],
-    10: [30, 35, 45, 60,  70],
-    11: [30, 35, 50, 70,  80],
-    12: [45, 50, 65, 80, 101],
+    1:  [55, 60, 70, 85, 95],
+    2:  [50, 55, 65, 80, 95],
+    3:  [40, 45, 60, 75, 95],
+    4:  [30, 35, 45, 60, 70],
+    5:  [25, 30, 35, 40, 60],
+    6:  [30, 35, 40, 55, 70],
+    7:  [45, 50, 55, 65, 95],
+    8:  [45, 50, 55, 65, 95],
+    9:  [35, 40, 45, 60, 80],
+    10: [30, 35, 45, 60, 70],
+    11: [30, 35, 50, 70, 80],
+    12: [45, 50, 65, 80, 95],
 }
+
+# Full charge (LFP balancing / SoC sync) is triggered the night before a
+# tier-5 (worst forecast) day, but no more often than this many days.
+# Sunny-day cost of wasted PV >> cost of slightly stale SoC, so the trigger
+# is gated on weather *and* this minimum interval.
+FULL_CHARGE_MIN_INTERVAL_DAYS: int = 14
+FULL_CHARGE_MIN_TARGET_SOC:    int = 90  # Ensure BULK has headroom to reach absorption
+
+
+def _load_last_full_charge() -> date | None:
+    """Read the last successful full-charge date from targets.json, if recorded."""
+    try:
+        with open(CONFIG_PATH) as f:
+            targets = json.load(f)
+        s = targets.get("last_full_charge")
+        if not s:
+            return None
+        return date.fromisoformat(s)
+    except Exception as e:
+        log.debug("Could not load last_full_charge from targets.json: %s", e)
+        return None
+
+
+def should_trigger_full_charge(weather_code: int, today: date) -> bool:
+    """Return True iff tomorrow is tier 5 AND it's been at least
+    FULL_CHARGE_MIN_INTERVAL_DAYS since the last completed full charge."""
+    tier = determine_weather_tier(weather_code)
+    if tier != 5:
+        log.debug("Full-charge trigger: tier=%d (need 5) — skip", tier)
+        return False
+
+    last = _load_last_full_charge()
+    if last is None:
+        log.info("Full-charge trigger: tier 5 and no prior full charge recorded — TRIGGER")
+        return True
+
+    days_since = (today - last).days
+    if days_since >= FULL_CHARGE_MIN_INTERVAL_DAYS:
+        log.info(
+            "Full-charge trigger: tier 5 and %d days since last (%s, ≥ %d) — TRIGGER",
+            days_since, last.isoformat(), FULL_CHARGE_MIN_INTERVAL_DAYS,
+        )
+        return True
+
+    log.info(
+        "Full-charge trigger: tier 5 but only %d days since last (%s, < %d) — skip",
+        days_since, last.isoformat(), FULL_CHARGE_MIN_INTERVAL_DAYS,
+    )
+    return False
 
 
 def determine_target_soc(weather_code: int, month: int) -> int:
@@ -294,6 +343,7 @@ def main() -> None:
     log.debug("Effective start SoC for calculation: %.2f%%", battery_soc)
 
     # ── Target SoC ────────────────────────────────────────────────────────
+    weather_code: int | None = None
     if args.target_soc is not None:
         target_soc = args.target_soc
         log.info("Using CLI target SoC: %d%%", target_soc)
@@ -303,6 +353,19 @@ def main() -> None:
             else fetch_tomorrow_weather_code()
         )
         target_soc = determine_target_soc(weather_code, month)
+
+    # ── Full-charge trigger ───────────────────────────────────────────────
+    # Only trigger on tier-5 nights and not more often than the min interval —
+    # full charge wastes the next day's PV, so cost is high on sunny days.
+    full_charge = False
+    if weather_code is not None and args.target_soc is None:
+        full_charge = should_trigger_full_charge(weather_code, date.today())
+        if full_charge and target_soc < FULL_CHARGE_MIN_TARGET_SOC:
+            log.info(
+                "Full charge: lifting target_soc %d%% → %d%% to give BULK enough headroom",
+                target_soc, FULL_CHARGE_MIN_TARGET_SOC,
+            )
+            target_soc = FULL_CHARGE_MIN_TARGET_SOC
 
     # ── Charging window ────────────────────────────────────────────────────
     if args.charging_hours is not None and args.until_time is not None:
@@ -325,16 +388,27 @@ def main() -> None:
 
     # ── Write targets.json ─────────────────────────────────────────────────
     if args.dry_run:
-        log.info("Dry run — targets.json not modified")
+        log.info(
+            "Dry run — targets.json not modified (would set full_charge=%s)", full_charge
+        )
         return
 
-    targets = {"target_soc": target_soc, "daily_charge_current": daily_charge_current}
+    # Preserve last_full_charge (set by battery_controller on completion); only the
+    # full_charge flag and the daily values are owned by this script.
+    try:
+        with open(CONFIG_PATH) as f:
+            targets = json.load(f)
+    except Exception:
+        targets = {}
+    targets["target_soc"] = target_soc
+    targets["daily_charge_current"] = daily_charge_current
+    targets["full_charge"] = full_charge
     try:
         with open(CONFIG_PATH, "w") as f:
             json.dump(targets, f)
         log.info(
-            "Wrote targets to %s: target_soc=%d%%  daily_charge_current=%.0f A",
-            CONFIG_PATH, target_soc, daily_charge_current,
+            "Wrote targets to %s: target_soc=%d%%  daily_charge_current=%.0f A  full_charge=%s",
+            CONFIG_PATH, target_soc, daily_charge_current, full_charge,
         )
     except Exception as e:
         log.error("Failed to write targets.json: %s", e)
