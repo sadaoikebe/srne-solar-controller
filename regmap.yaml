@@ -46,12 +46,7 @@
 "5-6":   { name: pv4_power,         unit: W,   scale: 0.1 }
 "48-49": { name: pv3_daily,         unit: kWh, scale: 0.1 }
 "50-51": { name: pv3_cumulative,    unit: kWh, scale: 0.1 }
-"52-53": { name: pv4_daily,         unit: kWh, scale: 0.1 }
-"54-55": { name: pv4_cumulative,    unit: kWh, scale: 0.1 }
-"70-71": { name: batt_charge_daily_growatt,        unit: kWh, scale: 0.1 }
-"72-73": { name: batt_charge_cumulative_growatt,   unit: kWh, scale: 0.1 }
-"74-75": { name: batt_discharge_daily_growatt,     unit: kWh, scale: 0.1 }
-"76-77": { name: batt_discharge_cumulative_growatt, unit: kWh, scale: 0.1 }
+"76-77": { name: batt_charge_cumulative_growatt, unit: kWh, scale: 0.1 }
 "17":    { name: battery_voltage_growatt,         unit: V, scale: 0.01 }
 "83":    { name: battery_current_growatt_charge,  unit: A, scale: 0.1 }
 "84":    { name: battery_current_growatt_draw,    unit: A, scale: 0.1 }
