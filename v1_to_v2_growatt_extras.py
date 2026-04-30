@@ -2,17 +2,19 @@
 # v1_to_v2_growatt_extras.py
 #
 # Backfills the Growatt registers that were added to regmap.yaml AFTER the
-# original v1 -> v2 migration completed:
+# original v1 -> v2 migration completed.
 #
-#   - pv4_daily                       (input regs 52-53)
-#   - pv4_cumulative                  (input regs 54-55)
-#   - batt_charge_daily_growatt       (input regs 70-71)
-#   - batt_charge_cumulative_growatt  (input regs 72-73)
-#   - batt_discharge_daily_growatt    (input regs 74-75)
-#   - batt_discharge_cumulative_growatt (input regs 76-77)
+# History note: an earlier revision of regmap.yaml inferred several other
+# Growatt input registers (52-55 / 70-75) from the SPF reference map. Field
+# inspection showed those addresses did not match this firmware (pv4
+# cumulative came back zero, others returned obviously-wrong values like
+# 262144). They were removed. The single register pair below survived
+# inspection — its values look correct as a charge counter.
 #
-# v1 stored these as fields "2052"-"2055" and "2070"-"2077" on the wide
-# `registers` measurement (Growatt input register N -> v1 field str(N+2000)).
+#   - batt_charge_cumulative_growatt  (input regs 76-77)
+#
+# v1 stored this as fields "2076"-"2077" on the wide `registers` measurement
+# (Growatt input register N -> v1 field str(N+2000)).
 #
 # This script is a narrow variant of the original v1_to_v2.py: it reuses the
 # same per-day chunking, the same idempotent (measurement, tags, ts) write
@@ -74,12 +76,7 @@ PROGRESS_FILE = os.path.join(
 
 # Whitelist: only registers added after the original cutover.
 ONLY_NAMES: Set[str] = {
-    "pv4_daily",
-    "pv4_cumulative",
-    "batt_charge_daily_growatt",
     "batt_charge_cumulative_growatt",
-    "batt_discharge_daily_growatt",
-    "batt_discharge_cumulative_growatt",
 }
 
 
