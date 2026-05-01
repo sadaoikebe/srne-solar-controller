@@ -34,6 +34,7 @@ services:
       - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
       - INFLUXDB2_ORG=${INFLUXDB2_ORG}
       - INFLUXDB2_BUCKET=${INFLUXDB2_BUCKET}
+      - INFLUXDB2_BUCKET_RAW=${INFLUXDB2_BUCKET_RAW:-solar_raw}
       - INFLUXDB2_TOKEN=${INFLUXDB2_TOKEN}
     volumes:
       - grafana-data:/var/lib/grafana
@@ -87,6 +88,9 @@ services:
       - INFLUX_TOKEN=${INFLUXDB2_TOKEN}
       - INFLUX_ORG=${INFLUXDB2_ORG}
       - INFLUX_BUCKET=${INFLUXDB2_BUCKET}
+      # Optional: separate bucket for raw uint16 capture of Growatt regs 0–95.
+      # Leave INFLUXDB2_BUCKET_RAW unset in .env to disable the raw tier.
+      - INFLUX_BUCKET_RAW=${INFLUXDB2_BUCKET_RAW:-}
       - MODBUS_API_PORT=${MODBUS_API_PORT:-5004}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:

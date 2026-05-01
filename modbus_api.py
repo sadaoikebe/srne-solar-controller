@@ -94,12 +94,11 @@ POWMR_REQUIRED: Tuple[int, ...] = (
 
 POWMR_FAST_ADDRS: Tuple[int, ...] = (0x0100, 0x0101, 0x0102, 0x021C, 0x0234)
 
-GROWATT_REQUIRED: Tuple[int, ...] = (
-    1, 2, 3, 4, 5, 6, 7, 8,
-    10, 17, 83, 84,
-    48, 49, 50, 51,
-    76, 77,
-)
+# Full Growatt input register range exposed by /registers. The same range is
+# already read on the wire (see GROWATT_INPUT_BLOCKS); we just stopped filtering
+# it down. Registers without a regmap.yaml entry land in the raw tier
+# (modbus_raw measurement) so unknowns stay recoverable for later analysis.
+GROWATT_RAW_RANGE: Tuple[int, ...] = tuple(range(0, 96))
 
 # ── FastAPI setup ─────────────────────────────────────────────────────────────
 
@@ -258,7 +257,7 @@ async def get_all_registers() -> Dict[str, int]:
         growatt_raw = _read_input_blocks(growatt_client,   GROWATT_INPUT_BLOCKS,    "Growatt")
 
         powmr_part   = _as_hex_dict(powmr_raw,   POWMR_REQUIRED)
-        growatt_part = _as_dec_dict(growatt_raw, GROWATT_REQUIRED)
+        growatt_part = _as_dec_dict(growatt_raw, GROWATT_RAW_RANGE)
         combined     = {**powmr_part, **growatt_part}
 
         if not combined:

@@ -37,10 +37,18 @@ API_URL: str   = f"http://modbus_api:{_API_PORT}/registers"
 
 SCHEMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "regmap.yaml")
 
-INFLUX_URL    = os.environ["INFLUX_URL"]
-INFLUX_TOKEN  = os.environ["INFLUX_TOKEN"]
-INFLUX_ORG    = os.environ["INFLUX_ORG"]
-INFLUX_BUCKET = os.environ["INFLUX_BUCKET"]
+INFLUX_URL        = os.environ["INFLUX_URL"]
+INFLUX_TOKEN      = os.environ["INFLUX_TOKEN"]
+INFLUX_ORG        = os.environ["INFLUX_ORG"]
+INFLUX_BUCKET     = os.environ["INFLUX_BUCKET"]
+# Optional: when set, Growatt input regs 0–95 are also written as raw uint16
+# to a separate bucket as the `modbus_raw` measurement. Lets us recover and
+# rename registers later without re-collecting. Unset disables the raw tier.
+INFLUX_BUCKET_RAW = os.getenv("INFLUX_BUCKET_RAW") or None
+
+# Decimal keys "0".."95" — used to filter the fetch dict down to the Growatt
+# input range. PowMr regs (hex-keyed "0x...") are never in this set.
+GROWATT_RAW_KEYS = frozenset(str(n) for n in range(0, 96))
 
 # ── InfluxDB client ───────────────────────────────────────────────────────────
 
@@ -172,21 +180,42 @@ def transform_to_points(
     return out
 
 
+def transform_to_raw_points(ts_ns: int, data: Dict[str, int]) -> List[Point]:
+    """Build raw-tier points for every Growatt input register in the fetch.
+
+    Stored as uint16 with no scale, no name, no pair decoding — wire-level truth
+    so unknown registers stay recoverable for later analysis. Use Flux to apply
+    any decoder (scale, signed, hi-lo pairing) at query time.
+    """
+    out: List[Point] = []
+    for k, v in data.items():
+        if k not in GROWATT_RAW_KEYS:
+            continue
+        out.append(
+            Point("modbus_raw")
+                .time(ts_ns)
+                .tag("reg", k)
+                .tag("device", "growatt")
+                .field("value", int(v))
+        )
+    return out
+
+
 # ── Write ─────────────────────────────────────────────────────────────────────
 
 
-def write_points(points: List[Point]) -> None:
+def write_points(points: List[Point], bucket: str = INFLUX_BUCKET) -> None:
     if not points:
         log.warning("write_points called with empty list — nothing to write")
         return
     t0 = time.monotonic()
     try:
         with _influx_client.write_api(write_options=SYNCHRONOUS) as w:
-            w.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=points)
+            w.write(bucket=bucket, org=INFLUX_ORG, record=points)
         elapsed = time.monotonic() - t0
         log.info(
             "Wrote %d points to InfluxDB in %.3f s  (bucket: %s)",
-            len(points), elapsed, INFLUX_BUCKET,
+            len(points), elapsed, bucket,
         )
     except Exception as e:
         elapsed = time.monotonic() - t0
@@ -224,6 +253,11 @@ def main() -> None:
     log.info("DB writer starting")
     log.info("  API URL       : %s", API_URL)
     log.info("  InfluxDB      : %s  org=%s  bucket=%s", INFLUX_URL, INFLUX_ORG, INFLUX_BUCKET)
+    if INFLUX_BUCKET_RAW:
+        log.info("  Raw bucket    : %s  (Growatt regs 0–95 -> measurement 'modbus_raw')",
+                 INFLUX_BUCKET_RAW)
+    else:
+        log.info("  Raw bucket    : (disabled — set INFLUX_BUCKET_RAW to enable)")
     log.info("  Schema        : %s", SCHEMA_PATH)
     log.info("=" * 60)
 
@@ -251,6 +285,14 @@ def main() -> None:
                     )
             except Exception as e:
                 log.error("Failed to process or write data: %s", e)
+
+            if INFLUX_BUCKET_RAW:
+                try:
+                    raw_points = transform_to_raw_points(ts_ns, register_data)
+                    if raw_points:
+                        write_points(raw_points, bucket=INFLUX_BUCKET_RAW)
+                except Exception as e:
+                    log.error("Raw-tier write failed: %s", e)
         else:
             log.warning(
                 "No register data available at %s — skipping this tick (data gap)",
