@@ -141,6 +141,10 @@ v1_count() {
 
 v2_count_name() {
   # Count points in v2 for a given `name` tag in the migration window.
+  # `count()` alone keeps all the original tag columns (reg, unit, etc.),
+  # which makes the data row's last field the unit, not the count.
+  # Collapsing with `group() |> sum()` produces a single clean column so
+  # awk's $NF is reliably the total.
   local name="$1" start stop bucket
   start="$(state_get .time_start)"
   stop="$(state_get .time_stop)"
@@ -151,10 +155,13 @@ from(bucket: "${bucket}")
   |> range(start: ${start}, stop: ${stop})
   |> filter(fn: (r) => r._measurement == "modbus" and r._field == "value" and r.name == "${name}")
   |> count()
+  |> group()
+  |> sum(column: "_value")
 FLUX
 )
   docker exec influxdb influx query --raw "$flux" 2>/dev/null \
-    | awk -F, 'BEGIN{c=0} /^,_result,/{ c+=$NF+0 } END{print c+0}'
+    | tr -d '\r' \
+    | awk -F, 'BEGIN{c=0} /^,_result,/{ c=$NF+0 } END{print c+0}'
 }
 
 # ── Phase: start ──────────────────────────────────────────────────────────
