@@ -137,7 +137,7 @@ MONTHLY_TARGET_SOC_TABLE: dict[int, list[int]] = {
 # tier-5 (worst forecast) day, but no more often than this many days.
 # Sunny-day cost of wasted PV >> cost of slightly stale SoC, so the trigger
 # is gated on weather *and* this minimum interval.
-FULL_CHARGE_MIN_INTERVAL_DAYS: int = 14
+FULL_CHARGE_MIN_INTERVAL_DAYS: int = 30
 FULL_CHARGE_MIN_TARGET_SOC:    int = 90  # Ensure BULK has headroom to reach absorption
 
 
