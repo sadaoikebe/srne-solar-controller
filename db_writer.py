@@ -123,7 +123,10 @@ def build_point(
     value: float,
     raw_int: int,
 ) -> Point:
-    p = Point("modbus").time(ts_ns).tag("reg", reg_key)
+    # Tags are case-sensitive in InfluxDB. The bulk of historical data was
+    # written with lowercase reg tags (e.g. "0xf03c"), so we lowercase here
+    # to keep the tag canonical and avoid colliding series.
+    p = Point("modbus").time(ts_ns).tag("reg", reg_key.lower())
     if "name" in meta:
         p = p.tag("name", str(meta["name"]))
     if "unit" in meta:
@@ -194,7 +197,7 @@ def transform_to_raw_points(ts_ns: int, data: Dict[str, int]) -> List[Point]:
         out.append(
             Point("modbus_raw")
                 .time(ts_ns)
-                .tag("reg", k)
+                .tag("reg", k.lower())
                 .tag("device", "growatt")
                 .field("value", int(v))
         )
