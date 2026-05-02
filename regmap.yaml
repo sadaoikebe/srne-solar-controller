@@ -50,3 +50,8 @@
 "83":    { name: battery_current_growatt_charge,  unit: A, scale: 0.1 }
 "84":    { name: battery_current_growatt_draw,    unit: A, scale: 0.1 }
 "10":    { name: load_growatt,                    unit: W, scale: 0.1 }
+
+"25":    { name: temp_inverter_growatt, unit: C, scale: 0.1, signed: true }
+"26":    { name: temp_dcdc_growatt,     unit: C, scale: 0.1, signed: true }
+"32":    { name: temp_buck1_growatt,    unit: C, scale: 0.1, signed: true }
+"33":    { name: temp_buck2_growatt,    unit: C, scale: 0.1, signed: true }
