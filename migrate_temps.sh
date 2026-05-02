@@ -36,7 +36,6 @@ SOURCE_DIR="${SOURCE_DIR:-/var/lib/influxdb_backup_1_8}"
 TEMP_BASE="${TEMP_BASE:-/var/lib/influxdb_temp_copy}"
 V1_HOST_PORT="${V1_HOST_PORT:-8087}"
 V1_IMAGE="${V1_IMAGE:-influxdb:1.8}"
-PY_BIN="${PY_BIN:-python3}"
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 TEMP_DIR="${TEMP_BASE}_${TS}"
@@ -44,6 +43,16 @@ CONTAINER_NAME="influxdb1_temp_${TS}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MIGRATOR="${SCRIPT_DIR}/v1_to_v2_growatt_temps.py"
+
+# Prefer ${SCRIPT_DIR}/venv/bin/python if it exists. Under `sudo`, system
+# python3 is used by default and won't see venv-installed packages.
+if [[ -z "${PY_BIN:-}" ]]; then
+  if [[ -x "${SCRIPT_DIR}/venv/bin/python" ]]; then
+    PY_BIN="${SCRIPT_DIR}/venv/bin/python"
+  else
+    PY_BIN="python3"
+  fi
+fi
 
 log() { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 
@@ -61,6 +70,7 @@ log "Source backup : $SOURCE_DIR  (read-only — will not be modified)"
 log "Temp copy     : $TEMP_DIR    (NOT auto-deleted)"
 log "v1 container  : $CONTAINER_NAME  (image: $V1_IMAGE, port: ${V1_HOST_PORT})"
 log "Migrator      : $MIGRATOR"
+log "Python        : $PY_BIN"
 
 # ── 1. Copy the backup (preserves perms, never touches source) ─────────────
 log "Copying backup -> temp copy ..."
