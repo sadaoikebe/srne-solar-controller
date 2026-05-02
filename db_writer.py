@@ -123,9 +123,11 @@ def build_point(
     value: float,
     raw_int: int,
 ) -> Point:
-    # Tags are case-sensitive in InfluxDB. The bulk of historical data was
-    # written with lowercase reg tags (e.g. "0xf03c"), so we lowercase here
-    # to keep the tag canonical and avoid colliding series.
+    # Tags are case-sensitive in InfluxDB. regmap.yaml + modbus_api now both
+    # produce lowercase reg keys, so .lower() is a no-op under normal flow —
+    # kept as a defensive guard against future drift (a hand-edited regmap
+    # entry that slips in uppercase would otherwise reintroduce the split
+    # series we just spent a migration cleaning up).
     p = Point("modbus").time(ts_ns).tag("reg", reg_key.lower())
     if "name" in meta:
         p = p.tag("name", str(meta["name"]))

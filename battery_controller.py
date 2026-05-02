@@ -161,7 +161,7 @@ def fetch_registers() -> dict | None:
         log.debug(
             "Registers fetched: SoC=%s%%  raw_V=%s  raw_I=%s  load_L1=%s W  load_L2=%s W",
             data.get("0x0100"), data.get("0x0101"),
-            data.get("0x0102"), data.get("0x021C"), data.get("0x0234"),
+            data.get("0x0102"), data.get("0x021c"), data.get("0x0234"),
         )
         return data
     except requests.RequestException as e:
@@ -561,7 +561,7 @@ def main() -> None:
 
         # Validate all required keys are present before parsing.
         if limited_data is not None:
-            _REQUIRED_KEYS = ("0x0100", "0x0101", "0x0102", "0x021C", "0x0234")
+            _REQUIRED_KEYS = ("0x0100", "0x0101", "0x0102", "0x021c", "0x0234")
             missing = [k for k in _REQUIRED_KEYS if k not in limited_data]
             if missing:
                 log.warning(
@@ -582,12 +582,12 @@ def main() -> None:
             #   0x0100 = battery SoC (%)
             #   0x0101 = battery voltage (×0.1 V)
             #   0x0102 = battery current (×0.1 A, signed; positive = charging)
-            #   0x021C = load apparent power L1 (W)
+            #   0x021c = load apparent power L1 (W)
             #   0x0234 = load apparent power L2 (W)
             battery_soc     = float(int(limited_data["0x0100"]))
             battery_voltage = int(limited_data["0x0101"]) / 10.0
             battery_current = -_to_signed_16(int(limited_data["0x0102"])) / 10.0
-            load_power      = int(limited_data["0x021C"]) + int(limited_data["0x0234"])
+            load_power      = int(limited_data["0x021c"]) + int(limited_data["0x0234"])
 
             log.debug(
                 "Readings: SoC=%d%%  V=%.1f V  I=%+.1f A  load=%.0f W",

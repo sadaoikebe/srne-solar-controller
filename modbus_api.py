@@ -156,7 +156,7 @@ def _as_hex_dict(
     raw: Dict[int, int], whitelist: Iterable[int]
 ) -> Dict[str, int]:
     w = set(whitelist)
-    return {f"0x{a:04X}": raw[a] for a in sorted(raw) if a in w}
+    return {f"0x{a:04x}": raw[a] for a in sorted(raw) if a in w}
 
 
 def _as_dec_dict(
@@ -304,7 +304,7 @@ async def get_limited_registers() -> Dict[str, int]:
         subset = _as_hex_dict(raw, POWMR_FAST_ADDRS)
 
         if len(subset) != len(POWMR_FAST_ADDRS):
-            need    = {f"0x{a:04X}" for a in POWMR_FAST_ADDRS}
+            need    = {f"0x{a:04x}" for a in POWMR_FAST_ADDRS}
             missing = sorted(need - set(subset.keys()))
             log.error("/limited_registers: missing addresses %s", missing)
             raise HTTPException(status_code=502, detail=f"Missing fast addrs: {missing}")
@@ -312,7 +312,7 @@ async def get_limited_registers() -> Dict[str, int]:
         log.debug(
             "/limited_registers: SoC=%s%%  raw_V=%s  raw_I=%s  L1=%s W  L2=%s W",
             subset.get("0x0100"), subset.get("0x0101"),
-            subset.get("0x0102"), subset.get("0x021C"), subset.get("0x0234"),
+            subset.get("0x0102"), subset.get("0x021c"), subset.get("0x0234"),
         )
         return subset
     except HTTPException:

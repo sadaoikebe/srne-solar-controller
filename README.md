@@ -46,7 +46,7 @@ Verify it is running:
 
 ```bash
 curl http://localhost:5004/limited_registers
-# {"0x0100": 87, "0x0101": 534, "0x0102": 65300, "0x021C": 412, "0x0234": 388}
+# {"0x0100": 87, "0x0101": 534, "0x0102": 65300, "0x021c": 412, "0x0234": 388}
 ```
 
 Grafana: `http://<pi-ip>:3000` — log in with `USERNAME` / `PASSWORD`.
