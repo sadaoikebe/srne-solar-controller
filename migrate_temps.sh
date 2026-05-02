@@ -80,15 +80,30 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 log "Starting $V1_IMAGE ..."
-docker run -d --rm \
+# --user 0:0  -> sidestep ownership mismatches in the copied data dir
+# no --rm     -> keep the container around on failure so logs survive
+docker run -d \
   --name "$CONTAINER_NAME" \
+  --user 0:0 \
   -p "127.0.0.1:${V1_HOST_PORT}:8086" \
   -v "${TEMP_DIR}:/var/lib/influxdb" \
   "$V1_IMAGE" >/dev/null
 
-# Wait for /ping (v1 returns 204 No Content when ready)
+# Wait for /ping (v1 returns 204 No Content when ready). Bail early if the
+# container exits — the connection-reset we'd otherwise see is meaningless.
 log "Waiting for InfluxDB 1.8 to come up on 127.0.0.1:${V1_HOST_PORT} ..."
 for i in $(seq 1 60); do
+  state="$(docker inspect -f '{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo missing)"
+  if [[ "$state" != "running" ]]; then
+    log "ERROR: container state is '$state' — InfluxDB 1.8 did not stay up."
+    log "---- docker logs (last 80 lines) ----"
+    docker logs --tail=80 "$CONTAINER_NAME" 2>&1 || true
+    log "-------------------------------------"
+    log "Container left in place for inspection: $CONTAINER_NAME"
+    log "Remove it manually with:  docker rm -f $CONTAINER_NAME"
+    trap - EXIT INT TERM
+    exit 1
+  fi
   if curl -fsS -o /dev/null "http://127.0.0.1:${V1_HOST_PORT}/ping"; then
     log "InfluxDB 1.8 is up (after ${i}s)"
     break
@@ -96,7 +111,9 @@ for i in $(seq 1 60); do
   sleep 1
   if [[ $i -eq 60 ]]; then
     log "ERROR: InfluxDB 1.8 did not respond on /ping within 60s"
-    docker logs --tail=50 "$CONTAINER_NAME" || true
+    log "---- docker logs (last 80 lines) ----"
+    docker logs --tail=80 "$CONTAINER_NAME" 2>&1 || true
+    log "-------------------------------------"
     exit 1
   fi
 done
