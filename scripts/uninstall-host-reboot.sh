@@ -22,8 +22,10 @@ rm -f /usr/local/sbin/srne-reboot.sh
 systemctl daemon-reload
 
 # Drop any pending request first so we don't trigger a reboot mid-uninstall.
+# (last-reboot is also wiped — a fresh install starts with no cooldown history.)
 echo "Removing sentinel directory /var/lib/srne-reboot"
 rm -f /var/lib/srne-reboot/reboot-requested
+rm -f /var/lib/srne-reboot/last-reboot
 rm -rf /var/lib/srne-reboot
 
 echo "Removing ${PROJECT_DIR}/compose.override.yaml"

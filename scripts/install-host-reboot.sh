@@ -36,9 +36,35 @@ echo "Writing ${TRIGGER_SCRIPT}"
 cat > "${TRIGGER_SCRIPT}" <<'EOF'
 #!/bin/bash
 # Triggered by srne-reboot.path when the container writes the sentinel file.
+#
+# Cooldown safety: refuses to reboot if the previous reboot was less than
+# COOLDOWN_SECONDS ago. The timestamp file persists across reboots, so a
+# malfunction that re-creates the trigger immediately after boot cannot
+# loop the host. Manual override:
+#   sudo rm /var/lib/srne-reboot/last-reboot   # forget the last reboot
+#   sudo systemctl disable --now srne-reboot.path   # stop the watcher
 set -e
-rm -f /var/lib/srne-reboot/reboot-requested
-logger -t srne-reboot "host reboot requested by container"
+
+TRIGGER=/var/lib/srne-reboot/reboot-requested
+LAST=/var/lib/srne-reboot/last-reboot
+COOLDOWN_SECONDS=3600   # 60 minutes — edit and re-run install if you want a different value
+
+# Always remove the trigger first, even when suppressing — otherwise the
+# path unit would re-fire as soon as the trigger reappears.
+rm -f "$TRIGGER"
+
+now=$(date +%s)
+if [[ -f "$LAST" ]]; then
+    last=$(cat "$LAST" 2>/dev/null || echo 0)
+    elapsed=$(( now - last ))
+    if (( elapsed < COOLDOWN_SECONDS )); then
+        logger -t srne-reboot "reboot suppressed by cooldown (${elapsed}s < ${COOLDOWN_SECONDS}s)"
+        exit 0
+    fi
+fi
+
+echo "$now" > "$LAST"
+logger -t srne-reboot "reboot triggered (cooldown=${COOLDOWN_SECONDS}s)"
 sleep 5
 /sbin/shutdown -r now
 EOF

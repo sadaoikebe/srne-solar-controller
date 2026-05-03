@@ -53,6 +53,29 @@ Grafana: `http://<pi-ip>:3000` — log in with `USERNAME` / `PASSWORD`.
 
 ---
 
+## Updating
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+`docker compose up -d --build` rebuilds the local `srne-app` image only when
+the source has changed and recreates only the containers whose config or
+image changed — InfluxDB and Grafana keep running.
+
+If you have the optional host-reboot button enabled (see below) and the
+script changed in this update, also re-run:
+
+```bash
+sudo bash scripts/install-host-reboot.sh
+```
+
+The install script overwrites its own outputs in place, so re-running is
+safe and is how you pick up changes (e.g. cooldown duration).
+
+---
+
 ## Architecture
 
 ```mermaid
@@ -202,6 +225,38 @@ file — it never has `CAP_SYS_BOOT` or root on the host. To opt out:
 sudo bash scripts/uninstall-host-reboot.sh
 docker compose up -d
 ```
+
+### Reboot-loop safety
+
+The trigger script enforces a **60-minute cooldown** between reboots: if a
+new request arrives less than that since the last reboot, it is logged and
+ignored. The timestamp lives in `/var/lib/srne-reboot/last-reboot` and
+persists across reboots, so a buggy or compromised container that
+re-requests a reboot immediately after every boot cannot loop the host.
+
+To inspect history:
+
+```bash
+journalctl -t srne-reboot
+```
+
+### Manual recovery
+
+If the cooldown is in your way, or you just want to halt all reboot activity:
+
+```bash
+# Force the next reboot request to be honored (skip cooldown)
+sudo rm /var/lib/srne-reboot/last-reboot
+
+# Stop the watcher entirely (button still appears, but does nothing)
+sudo systemctl disable --now srne-reboot.path
+
+# Remove everything
+sudo bash scripts/uninstall-host-reboot.sh
+```
+
+To change the cooldown, edit `COOLDOWN_SECONDS` near the top of
+`scripts/install-host-reboot.sh` and re-run the script.
 
 ---
 
