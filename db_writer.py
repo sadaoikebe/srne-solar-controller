@@ -1,14 +1,18 @@
 """InfluxDB writer.
 
-Wakes at each wall-clock minute boundary, fetches all inverter registers
-from modbus_api, maps them through regmap.yaml, and writes the resulting
-points to InfluxDB v2.
+Wakes every SAMPLE_INTERVAL_SECONDS (30 s, aligned to :00/:30), fetches
+all inverter registers from modbus_api, maps them through regmap.yaml, and
+writes the resulting points to InfluxDB v2.
+
+The raw-tier dump (Growatt regs 0–95, INFLUX_BUCKET_RAW) is only written on
+the minute boundary — high-resolution truth isn't useful for unknown-register
+recovery, and it's the heaviest write per tick.
 
 Log levels
 ----------
   DEBUG  — raw register dict, per-point transforms, schema misses
-  INFO   — startup configuration, per-minute write summary (N points, elapsed time)
-  WARNING — fetch failure (one data-gap per minute), empty result sets
+  INFO   — startup configuration, per-tick write summary (N points, elapsed time)
+  WARNING — fetch failure, empty result sets
   ERROR  — InfluxDB write failure
 """
 from __future__ import annotations
@@ -235,6 +239,7 @@ def write_points(points: List[Point], bucket: str = INFLUX_BUCKET) -> None:
 
 
 SAMPLE_INTERVAL_SECONDS: int = 30
+RAW_TIER_INTERVAL_SECONDS: int = 60   # Subset of SAMPLE_INTERVAL ticks (must be a multiple)
 
 
 def wait_until_next_tick() -> datetime:
@@ -266,11 +271,20 @@ def main() -> None:
     log.info("  Schema        : %s", SCHEMA_PATH)
     log.info("=" * 60)
 
-    schema = load_schema(SCHEMA_PATH)
-    wait_until_next_tick()
+    schema    = load_schema(SCHEMA_PATH)
+    tick_time = wait_until_next_tick()
 
     while True:
-        log.debug("Tick at %s", datetime.now().strftime("%H:%M:%S"))
+        # Raw tier fires only when the tick aligns with RAW_TIER_INTERVAL_SECONDS.
+        # tick_time comes from wait_until_next_tick() so it's the *planned* aligned
+        # second — not the wakeup wall clock — and therefore stable under jitter.
+        raw_due = (
+            INFLUX_BUCKET_RAW is not None
+            and (tick_time.minute * 60 + tick_time.second) % RAW_TIER_INTERVAL_SECONDS == 0
+        )
+        log.debug("Tick at %s%s",
+                  tick_time.strftime("%H:%M:%S"),
+                  "  (raw-tier write due)" if raw_due else "")
 
         # Capture timestamp *before* the fetch so InfluxDB points reflect
         # when the measurement was initiated, not when it was processed.
@@ -291,7 +305,7 @@ def main() -> None:
             except Exception as e:
                 log.error("Failed to process or write data: %s", e)
 
-            if INFLUX_BUCKET_RAW:
+            if raw_due:
                 try:
                     raw_points = transform_to_raw_points(ts_ns, register_data)
                     if raw_points:
@@ -301,10 +315,10 @@ def main() -> None:
         else:
             log.warning(
                 "No register data available at %s — skipping this tick (data gap)",
-                datetime.now().strftime("%H:%M:%S"),
+                tick_time.strftime("%H:%M:%S"),
             )
 
-        wait_until_next_tick()
+        tick_time = wait_until_next_tick()
 
 
 if __name__ == "__main__":

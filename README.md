@@ -29,7 +29,7 @@ graph TD
     USER -->|web form| API
 
     API --> BC[battery_controller<br/>every 5 s]
-    API --> DW[db_writer<br/>every 60 s]
+    API --> DW[db_writer<br/>every 30 s]
     API --> DT[daily_target<br/>22:59 cron]
     BC -->|set current / priority| API
 
