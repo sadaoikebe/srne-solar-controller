@@ -184,6 +184,27 @@ curl http://localhost:5004/registers | python3 -m json.tool
 
 ---
 
+## Optional: Host Reboot Button
+
+By default, the controller cannot reboot the Raspberry Pi — the "Restart Host"
+button in the targets form returns *not enabled*. To turn it on:
+
+```bash
+sudo bash scripts/install-host-reboot.sh
+docker compose up -d
+```
+
+The install script drops a tiny systemd path unit on the host that watches
+`/var/lib/srne-reboot/reboot-requested`. The container can only *create* that
+file — it never has `CAP_SYS_BOOT` or root on the host. To opt out:
+
+```bash
+sudo bash scripts/uninstall-host-reboot.sh
+docker compose up -d
+```
+
+---
+
 ## Roadmap
 
 - [ ] Parameterize JMA area code and TOU window via environment variables (currently hardcoded for Kansai)

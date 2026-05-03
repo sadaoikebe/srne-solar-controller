@@ -18,7 +18,7 @@ import json
 import math
 import os
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from enum import Enum, IntEnum
 
 import requests
@@ -250,6 +250,36 @@ def _complete_full_charge() -> None:
         )
     except Exception as e:
         log.warning("Failed to write targets.json on full-charge completion: %s", e)
+
+
+def load_manual_override() -> tuple[State, datetime] | None:
+    """Read manual_override from targets.json; return (state, expires_at) or None.
+
+    A malformed or expired override is treated as absent.  An expired override
+    is also pruned from the file so it doesn't keep getting parsed each tick.
+    """
+    targets = _read_targets_file()
+    raw = targets.get("manual_override")
+    if not raw:
+        return None
+    try:
+        state   = State(raw["state"])
+        expires = datetime.fromisoformat(raw["expires_at"])
+    except Exception as e:
+        log.warning("Invalid manual_override (%s) — ignoring", e)
+        return None
+
+    now = datetime.now(expires.tzinfo) if expires.tzinfo else datetime.now()
+    if now >= expires:
+        targets.pop("manual_override", None)
+        try:
+            with open(CONFIG_PATH, "w") as f:
+                json.dump(targets, f)
+            log.info("Manual override expired (was %s) — cleared from targets.json", state.value)
+        except Exception as e:
+            log.warning("Failed to clear expired override: %s", e)
+        return None
+    return state, expires
 
 
 def load_targets_from_file(
@@ -640,6 +670,9 @@ def main() -> None:
                 )
             last_battery_soc = battery_soc
 
+        # ── Manual override (UI-driven, time-limited) ────────────────
+        override = load_manual_override()
+
         # ── State transitions ─────────────────────────────────────────
         # Only evaluate the state machine with fresh data.  On fetch failure
         # we hold the current state to avoid acting on stale values.  After a
@@ -649,30 +682,42 @@ def main() -> None:
         if limited_data:
             time_period = get_time_period()
 
-            current_state, daily_charge_current, last_sbu_to_uti_time = determine_next_state(
-                current_state,
-                estimated_soc,
-                target_soc,
-                battery_voltage,
-                time_period,
-                daily_charge_current,
-                last_sbu_to_uti_time,
-                full_charge_active=full_charge,
-            )
+            if override is not None:
+                current_state = override[0]
+            else:
+                current_state, daily_charge_current, last_sbu_to_uti_time = determine_next_state(
+                    current_state,
+                    estimated_soc,
+                    target_soc,
+                    battery_voltage,
+                    time_period,
+                    daily_charge_current,
+                    last_sbu_to_uti_time,
+                    full_charge_active=full_charge,
+                )
 
             if current_state != prev_state:
-                log.info(
-                    "State: %s → %s  (est_SoC=%.1f%%  V=%.1f V  period=%s)",
-                    prev_state.value, current_state.value,
-                    estimated_soc if estimated_soc is not None else 0.0,
-                    battery_voltage, time_period,
-                )
+                if override is not None:
+                    log.info(
+                        "State (override): %s → %s  (expires %s, V=%.1f V)",
+                        prev_state.value, current_state.value,
+                        override[1].astimezone().strftime("%H:%M"),
+                        battery_voltage,
+                    )
+                else:
+                    log.info(
+                        "State: %s → %s  (est_SoC=%.1f%%  V=%.1f V  period=%s)",
+                        prev_state.value, current_state.value,
+                        estimated_soc if estimated_soc is not None else 0.0,
+                        battery_voltage, time_period,
+                    )
             else:
                 log.debug(
-                    "State: %s  est_SoC=%.1f%%  V=%.1f V  target_SoC=%.0f%%  period=%s",
+                    "State: %s  est_SoC=%.1f%%  V=%.1f V  target_SoC=%.0f%%  period=%s%s",
                     current_state.value,
                     estimated_soc if estimated_soc is not None else 0.0,
                     battery_voltage, target_soc, time_period,
+                    "  override=ACTIVE" if override is not None else "",
                 )
         elif consecutive_failures >= FAIL_SAFE_TICKS and current_state == State.SBU:
             log.warning(
@@ -686,7 +731,9 @@ def main() -> None:
         # ── Full-charge phase progression ─────────────────────────────
         # Only progresses with fresh data, in cheap period, while flag is set.
         # NORMAL → BULK → BALANCE → SYNC → done (clears flag, returns to NORMAL).
-        if limited_data and full_charge and time_period == "cheap":
+        # Skip while a manual override is active so the user can intervene
+        # without the full-charge state machine fighting back.
+        if limited_data and full_charge and time_period == "cheap" and override is None:
             now = datetime.now()
             sync_start = _str_to_time(SYNC_START_TIME)
             sync_deadline = _str_to_time(SYNC_DEADLINE)

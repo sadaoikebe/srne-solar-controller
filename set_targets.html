@@ -5,15 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; }
-        form { max-width: 300px; margin: auto; }
-        label, input { display: block; margin: 10px 0; }
-        input[type="number"] { width: 100%; padding: 5px; }
+        form { max-width: 320px; margin: auto; }
+        label, input, select { display: block; margin: 10px 0; }
+        input[type="number"], select { width: 100%; padding: 5px; }
         input[type="checkbox"] { display: inline-block; margin-right: 8px; vertical-align: middle; }
         .checkbox-row { margin: 14px 0; }
         .checkbox-row label { display: inline-block; margin: 0; }
         .info { font-size: 0.9em; color: #555; margin: 6px 0 14px; }
-        input[type="submit"] { background-color: #4CAF50; color: white; padding: 10px; border: none; cursor: pointer; }
-        .message { color: green; text-align: center; }
+        input[type="submit"] { background-color: #4CAF50; color: white; padding: 10px; border: none; cursor: pointer; width: 100%; }
+        input[type="submit"].danger { background-color: #d9534f; }
+        .message { color: green; text-align: center; max-width: 320px; margin: 14px auto; }
+        hr { max-width: 320px; margin: 30px auto; border: 0; border-top: 1px solid #ddd; }
     </style>
 </head>
 <body>
@@ -22,9 +24,11 @@
         <label for="target_soc">Target SOC (%):</label>
         <input type="number" id="target_soc" name="target_soc" value="{{ target_soc }}"
                min="0" max="100" required>
+
         <label for="daily_charge_current">Daily Charge Current (A):</label>
         <input type="number" id="daily_charge_current" name="daily_charge_current" value="{{ daily_charge_current }}"
                min="0" max="150" required>
+
         <div class="checkbox-row">
             <label for="full_charge">
                 <input type="checkbox" id="full_charge" name="full_charge" value="true"
@@ -33,10 +37,38 @@
             </label>
         </div>
         <p class="info">Last full charge: <strong>{{ last_full_charge }}</strong></p>
+
+        <label for="override_state">Manual override (now):</label>
+        <select id="override_state" name="override_state">
+            <option value="auto"         {% if override_state == 'auto'         %}selected{% endif %}>Auto (no override)</option>
+            <option value="UTI_CHARGING" {% if override_state == 'UTI_CHARGING' %}selected{% endif %}>UTI_CHARGING (force grid charge)</option>
+            <option value="UTI_STOPPED"  {% if override_state == 'UTI_STOPPED'  %}selected{% endif %}>UTI_STOPPED (no charge, grid load)</option>
+            <option value="SBU"          {% if override_state == 'SBU'          %}selected{% endif %}>SBU (force battery output)</option>
+        </select>
+        <p class="info">
+            Override lasts 60 min; submitting again resets the timer.
+            {% if override_remaining %}<br><strong>{{ override_remaining }}</strong>{% endif %}
+        </p>
+
         <input type="submit" value="Update">
     </form>
+
     {% if message %}
     <p class="message">{{ message }}</p>
     {% endif %}
+
+    <hr>
+
+    <form action="/restart_host" method="post"
+          onsubmit="return confirm('Reboot the Raspberry Pi? The UI will be unreachable for ~1 minute.');">
+        <input type="submit" class="danger"
+               value="Restart Host{% if not host_reboot_enabled %} (not enabled){% endif %}">
+        {% if not host_reboot_enabled %}
+        <p class="info">
+            Disabled by default. To enable, run on the host:<br>
+            <code>sudo bash scripts/install-host-reboot.sh &amp;&amp; docker compose up -d</code>
+        </p>
+        {% endif %}
+    </form>
 </body>
 </html>

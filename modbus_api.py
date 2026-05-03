@@ -18,7 +18,9 @@ import json
 import os
 import sys
 import hmac
+from datetime import datetime, timedelta, timezone
 from enum import IntEnum
+from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
 import pymodbus.client as modbusClient
@@ -44,6 +46,17 @@ if not VALID_USERNAME or not VALID_PASSWORD:
         "BASIC_AUTH_USER or BASIC_AUTH_PASS is not set — "
         "all endpoints that modify inverter settings are UNPROTECTED"
     )
+
+# ── Manual override / host-reboot configuration ──────────────────────────────
+
+OVERRIDE_TTL_MINUTES: int = 60
+VALID_OVERRIDE_STATES: Tuple[str, ...] = ("UTI_CHARGING", "UTI_STOPPED", "SBU")
+
+# Bind-mounted by scripts/install-host-reboot.sh; absent in the default setup.
+REBOOT_SENTINEL_DIR = Path("/var/run/srne-reboot")
+HOST_REBOOT_ENABLED: bool = REBOOT_SENTINEL_DIR.is_dir()
+if HOST_REBOOT_ENABLED:
+    log.info("Host reboot enabled — sentinel dir %s present", REBOOT_SENTINEL_DIR)
 
 # ── Enums ─────────────────────────────────────────────────────────────────────
 
@@ -486,6 +499,27 @@ async def get_charging_priority():
 # ── Targets form ──────────────────────────────────────────────────────────────
 
 
+def _override_view(targets: dict) -> tuple[str, str]:
+    """Return (override_state, remaining_text) for template rendering.
+
+    State is "auto" when no override is active or when the stored override is
+    expired/malformed; the caller doesn't need to know the difference.
+    """
+    raw = targets.get("manual_override") or {}
+    state = raw.get("state")
+    expires = raw.get("expires_at")
+    if state not in VALID_OVERRIDE_STATES or not expires:
+        return "auto", ""
+    try:
+        exp_dt = datetime.fromisoformat(expires)
+    except Exception:
+        return "auto", ""
+    delta = exp_dt - datetime.now(exp_dt.tzinfo)
+    if delta.total_seconds() <= 0:
+        return "auto", ""
+    return state, f"{int(delta.total_seconds() // 60)} min remaining"
+
+
 @app.get("/set_targets_form", response_class=HTMLResponse)
 async def set_targets_form(
     request: Request,
@@ -499,10 +533,11 @@ async def set_targets_form(
         daily_charge_current = int(targets.get("daily_charge_current", 0))
         full_charge          = bool(targets.get("full_charge", False))
         last_full_charge     = targets.get("last_full_charge") or "never"
+        override_state, override_remaining = _override_view(targets)
         log.debug(
             "/set_targets_form: loaded target_soc=%s  daily_charge_current=%s  "
-            "full_charge=%s  last_full_charge=%s",
-            target_soc, daily_charge_current, full_charge, last_full_charge,
+            "full_charge=%s  last_full_charge=%s  override=%s",
+            target_soc, daily_charge_current, full_charge, last_full_charge, override_state,
         )
     except Exception as e:
         log.warning("/set_targets_form: could not read targets.json: %s — using defaults", e)
@@ -510,6 +545,8 @@ async def set_targets_form(
         daily_charge_current = 0
         full_charge          = False
         last_full_charge     = "never"
+        override_state       = "auto"
+        override_remaining   = ""
 
     return templates.TemplateResponse(
         "set_targets.html",
@@ -519,6 +556,9 @@ async def set_targets_form(
             "daily_charge_current": daily_charge_current,
             "full_charge":          full_charge,
             "last_full_charge":     last_full_charge,
+            "override_state":       override_state,
+            "override_remaining":   override_remaining,
+            "host_reboot_enabled":  HOST_REBOOT_ENABLED,
         },
     )
 
@@ -529,6 +569,7 @@ async def set_targets(
     target_soc: int           = Form(...),
     daily_charge_current: int = Form(...),
     full_charge: bool         = Form(False),
+    override_state: str       = Form("auto"),
     credentials: HTTPBasicCredentials = Depends(verify_credentials),
 ):
     errors: List[str] = []
@@ -536,9 +577,11 @@ async def set_targets(
         errors.append(f"target_soc must be 0–100 (got {target_soc})")
     if not (0 <= daily_charge_current <= 150):
         errors.append(f"daily_charge_current must be 0–150 A (got {daily_charge_current})")
+    if override_state != "auto" and override_state not in VALID_OVERRIDE_STATES:
+        errors.append(f"override_state must be auto/UTI_CHARGING/UTI_STOPPED/SBU (got {override_state!r})")
 
     # Read existing targets so last_full_charge (owned by battery_controller) is preserved
-    # — we only ever write the four user-facing keys plus whatever was already there.
+    # — we only ever write the user-facing keys plus whatever was already there.
     try:
         with open(CONFIG_PATH) as f:
             existing = json.load(f)
@@ -546,61 +589,98 @@ async def set_targets(
         existing = {}
     last_full_charge = existing.get("last_full_charge") or "never"
 
+    def _render(message: str, status_code: int = 200, extra: dict | None = None) -> HTMLResponse:
+        ctx = {
+            "request":              request,
+            "message":              message,
+            "target_soc":           target_soc,
+            "daily_charge_current": daily_charge_current,
+            "full_charge":          full_charge,
+            "last_full_charge":     last_full_charge,
+            "override_state":       override_state if override_state in {"auto", *VALID_OVERRIDE_STATES} else "auto",
+            "override_remaining":   "",
+            "host_reboot_enabled":  HOST_REBOOT_ENABLED,
+        }
+        if extra:
+            ctx.update(extra)
+        return templates.TemplateResponse("set_targets.html", ctx, status_code=status_code)
+
     if errors:
         log.warning("/set_targets: validation error: %s", "; ".join(errors))
-        return templates.TemplateResponse(
-            "set_targets.html",
-            {
-                "request":              request,
-                "message":              "Validation error: " + "; ".join(errors),
-                "target_soc":           target_soc,
-                "daily_charge_current": daily_charge_current,
-                "full_charge":          full_charge,
-                "last_full_charge":     last_full_charge,
-            },
-            status_code=400,
-        )
+        return _render("Validation error: " + "; ".join(errors), status_code=400)
 
     targets = dict(existing)
     targets["target_soc"]           = target_soc
     targets["daily_charge_current"] = daily_charge_current
     targets["full_charge"]          = full_charge
+
+    if override_state == "auto":
+        targets.pop("manual_override", None)
+        override_summary = "auto (no override)"
+    else:
+        expires = datetime.now(timezone.utc) + timedelta(minutes=OVERRIDE_TTL_MINUTES)
+        targets["manual_override"] = {
+            "state":      override_state,
+            "expires_at": expires.isoformat(),
+        }
+        override_summary = f"{override_state} for {OVERRIDE_TTL_MINUTES} min"
+
     try:
         with open(CONFIG_PATH, "w") as f:
             json.dump(targets, f)
         log.info(
-            "/set_targets: saved target_soc=%d%%  daily_charge_current=%d A  full_charge=%s",
-            target_soc, daily_charge_current, full_charge,
+            "/set_targets: saved target_soc=%d%%  daily_charge_current=%d A  "
+            "full_charge=%s  override=%s",
+            target_soc, daily_charge_current, full_charge, override_summary,
         )
-        return templates.TemplateResponse(
-            "set_targets.html",
-            {
-                "request": request,
-                "message": (
-                    f"Targets updated: target_soc={target_soc}%, "
-                    f"daily_charge_current={daily_charge_current} A, "
-                    f"full_charge={full_charge}"
-                ),
-                "target_soc":           target_soc,
-                "daily_charge_current": daily_charge_current,
-                "full_charge":          full_charge,
-                "last_full_charge":     last_full_charge,
-            },
+        _, override_remaining = _override_view(targets)
+        return _render(
+            f"Targets updated: target_soc={target_soc}%, "
+            f"daily_charge_current={daily_charge_current} A, "
+            f"full_charge={full_charge}, override={override_summary}",
+            extra={"override_remaining": override_remaining},
         )
     except Exception as e:
         log.error("/set_targets: failed to write targets.json: %s", e)
-        return templates.TemplateResponse(
-            "set_targets.html",
-            {
-                "request":              request,
-                "message":              f"Error saving targets: {e}",
-                "target_soc":           target_soc,
-                "daily_charge_current": daily_charge_current,
-                "full_charge":          full_charge,
-                "last_full_charge":     last_full_charge,
-            },
-            status_code=500,
+        return _render(f"Error saving targets: {e}", status_code=500)
+
+
+# ── Host reboot ───────────────────────────────────────────────────────────────
+
+
+@app.post("/restart_host", response_class=HTMLResponse)
+async def restart_host(
+    credentials: HTTPBasicCredentials = Depends(verify_credentials),
+):
+    """Request a host OS reboot via the systemd path-watch sentinel.
+
+    Returns 404 unless the opt-in setup has been performed (see
+    scripts/install-host-reboot.sh).  The container itself never has reboot
+    privileges — it merely creates a marker file that root-owned systemd
+    watches.
+    """
+    if not HOST_REBOOT_ENABLED:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Host reboot not enabled. "
+                "Run scripts/install-host-reboot.sh on the host, "
+                "then re-run docker compose up -d."
+            ),
         )
+    try:
+        (REBOOT_SENTINEL_DIR / "reboot-requested").touch()
+    except Exception as e:
+        log.error("/restart_host: failed to write sentinel: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to request reboot: {e}")
+    log.warning("/restart_host: reboot requested")
+    return HTMLResponse(
+        "<!DOCTYPE html><html><body style='font-family:sans-serif;margin:20px'>"
+        "<h2>Host reboot requested</h2>"
+        "<p>This page will be unreachable shortly.</p>"
+        "<p><a href='/set_targets_form'>Back</a></p>"
+        "</body></html>"
+    )
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
