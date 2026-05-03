@@ -98,7 +98,7 @@ load_env() {
     source "${SCRIPT_DIR}/.env"
     set +a
   fi
-  : "${INFLUXDB2_BUCKET:?INFLUXDB2_BUCKET not set (source .env)}"
+  : "${INFLUX_BUCKET:?INFLUX_BUCKET not set (source .env)}"
 }
 
 # ── State file (one active session) ───────────────────────────────────────
@@ -148,7 +148,7 @@ v2_count_name() {
   local name="$1" start stop bucket
   start="$(state_get .time_start)"
   stop="$(state_get .time_stop)"
-  bucket="${INFLUXDB2_BUCKET}"
+  bucket="${INFLUX_BUCKET}"
   local flux
   flux=$(cat <<FLUX
 from(bucket: "${bucket}")
@@ -311,7 +311,7 @@ phase_migrate() {
   require_running
 
   banner "migrate: resetting progress and writing to v2"
-  log "About to write to v2 bucket: $INFLUXDB2_BUCKET"
+  log "About to write to v2 bucket: $INFLUX_BUCKET"
   read -r -p "Proceed? [yes/NO]: " ans
   [[ "$ans" == "yes" ]] || { log "Aborted."; return; }
 

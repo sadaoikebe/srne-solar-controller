@@ -58,9 +58,9 @@ Minimum `.env`:
 TZ=Asia/Tokyo
 USERNAME=admin
 PASSWORD=...
-INFLUXDB2_ORG=solar
-INFLUXDB2_BUCKET=mysolardb
-INFLUXDB2_TOKEN=...
+INFLUX_ORG=solar
+INFLUX_BUCKET=mysolardb
+INFLUX_TOKEN=...
 ```
 
 - Web form: `http://<pi>:5004/set_targets_form`

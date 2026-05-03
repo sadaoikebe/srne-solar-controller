@@ -9,10 +9,10 @@ services:
       - DOCKER_INFLUXDB_INIT_MODE=setup
       - DOCKER_INFLUXDB_INIT_USERNAME=${USERNAME}
       - DOCKER_INFLUXDB_INIT_PASSWORD=${PASSWORD}
-      - DOCKER_INFLUXDB_INIT_ORG=${INFLUXDB2_ORG}
-      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUXDB2_BUCKET}
-      - DOCKER_INFLUXDB_INIT_RETENTION=${INFLUXDB2_RETENTION:-0}
-      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB2_TOKEN}
+      - DOCKER_INFLUXDB_INIT_ORG=${INFLUX_ORG}
+      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUX_BUCKET}
+      - DOCKER_INFLUXDB_INIT_RETENTION=${INFLUX_RETENTION:-0}
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUX_TOKEN}
     volumes:
       - /var/lib/influxdb2:/var/lib/influxdb2
       - /etc/influxdb2:/etc/influxdb2
@@ -32,10 +32,10 @@ services:
       - GF_SECURITY_ADMIN_USER=${USERNAME}
       - GF_SECURITY_ADMIN_PASSWORD=${PASSWORD}
       - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
-      - INFLUXDB2_ORG=${INFLUXDB2_ORG}
-      - INFLUXDB2_BUCKET=${INFLUXDB2_BUCKET}
-      - INFLUXDB2_BUCKET_RAW=${INFLUXDB2_BUCKET_RAW:-solar_raw}
-      - INFLUXDB2_TOKEN=${INFLUXDB2_TOKEN}
+      - INFLUX_ORG=${INFLUX_ORG}
+      - INFLUX_BUCKET=${INFLUX_BUCKET}
+      - INFLUX_BUCKET_RAW=${INFLUX_BUCKET_RAW:-solar_raw}
+      - INFLUX_TOKEN=${INFLUX_TOKEN}
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
@@ -53,9 +53,9 @@ services:
       - BASIC_AUTH_PASS=${PASSWORD}
       - MODBUS_API_PORT=${MODBUS_API_PORT:-5004}
       - INFLUX_URL=http://influxdb:8086
-      - INFLUX_TOKEN=${INFLUXDB2_TOKEN}
-      - INFLUX_ORG=${INFLUXDB2_ORG}
-      - INFLUX_BUCKET=${INFLUXDB2_BUCKET}
+      - INFLUX_TOKEN=${INFLUX_TOKEN}
+      - INFLUX_ORG=${INFLUX_ORG}
+      - INFLUX_BUCKET=${INFLUX_BUCKET}
       - CONFIG_PATH=/app/targets.json
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     ports:
@@ -85,12 +85,12 @@ services:
     command: python db_writer.py
     environment:
       - INFLUX_URL=http://influxdb:8086
-      - INFLUX_TOKEN=${INFLUXDB2_TOKEN}
-      - INFLUX_ORG=${INFLUXDB2_ORG}
-      - INFLUX_BUCKET=${INFLUXDB2_BUCKET}
+      - INFLUX_TOKEN=${INFLUX_TOKEN}
+      - INFLUX_ORG=${INFLUX_ORG}
+      - INFLUX_BUCKET=${INFLUX_BUCKET}
       # Optional: separate bucket for raw uint16 capture of Growatt regs 0–95.
-      # Leave INFLUXDB2_BUCKET_RAW unset in .env to disable the raw tier.
-      - INFLUX_BUCKET_RAW=${INFLUXDB2_BUCKET_RAW:-}
+      # Leave INFLUX_BUCKET_RAW unset in .env to disable the raw tier.
+      - INFLUX_BUCKET_RAW=${INFLUX_BUCKET_RAW:-}
       - MODBUS_API_PORT=${MODBUS_API_PORT:-5004}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:

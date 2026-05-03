@@ -9,9 +9,9 @@ datasources:
     isDefault: true
     jsonData:
       version: Flux
-      organization: ${INFLUXDB2_ORG}
-      defaultBucket: ${INFLUXDB2_BUCKET}
+      organization: ${INFLUX_ORG}
+      defaultBucket: ${INFLUX_BUCKET}
       tlsSkipVerify: true
     secureJsonData:
-      token: ${INFLUXDB2_TOKEN}
+      token: ${INFLUX_TOKEN}
     editable: false

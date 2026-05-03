@@ -48,10 +48,10 @@ V1_DB           = os.getenv("INFLUXDB1_DB",   "mysolardb")
 MEASUREMENT_SRC = "registers"
 
 # ── InfluxDB 2.x (destination) ────────────────────────────────────────────
-V2_URL          = os.getenv("INFLUXDB2_URL", "http://localhost:8086")
-V2_ORG          = os.getenv("INFLUXDB2_ORG")
-V2_BUCKET       = os.getenv("INFLUXDB2_BUCKET")
-V2_TOKEN        = os.getenv("INFLUXDB2_TOKEN")
+V2_URL          = os.getenv("INFLUX_URL", "http://localhost:8086")
+V2_ORG          = os.getenv("INFLUX_ORG")
+V2_BUCKET       = os.getenv("INFLUX_BUCKET")
+V2_TOKEN        = os.getenv("INFLUX_TOKEN")
 MEASUREMENT_DST = "modbus"
 
 # ── Migration window ──────────────────────────────────────────────────────

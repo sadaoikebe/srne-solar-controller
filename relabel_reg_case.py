@@ -37,10 +37,10 @@ from influxdb_client.client.delete_api import DeleteApi
 
 load_dotenv()
 
-V2_URL = os.getenv("INFLUXDB2_URL", "http://localhost:8086")
-V2_ORG = os.getenv("INFLUXDB2_ORG")
-V2_BUCKET = os.getenv("INFLUXDB2_BUCKET")
-V2_TOKEN = os.getenv("INFLUXDB2_TOKEN")
+V2_URL = os.getenv("INFLUX_URL", "http://localhost:8086")
+V2_ORG = os.getenv("INFLUX_ORG")
+V2_BUCKET = os.getenv("INFLUX_BUCKET")
+V2_TOKEN = os.getenv("INFLUX_TOKEN")
 MEASUREMENT = "modbus"
 
 # Wide enough to cover all data; Flux requires an explicit range start.
@@ -114,7 +114,7 @@ def log(msg: str) -> None:
 
 def _client() -> InfluxDBClient:
     if not (V2_URL and V2_ORG and V2_BUCKET and V2_TOKEN):
-        log("ERROR: missing env vars (INFLUXDB2_URL/ORG/BUCKET/TOKEN). "
+        log("ERROR: missing env vars (INFLUX_URL/ORG/BUCKET/TOKEN). "
             "Source .env first.")
         sys.exit(1)
     # The rewrite query touches every modbus point in the bucket (~3M rows on
