@@ -47,8 +47,6 @@ PV_CURRENT_THRESHOLD = 25.0    # A — physically impossible per string
 SOC_THRESHOLD        = 110.0   # % — over 100, impossible
 FREQ_THRESHOLD       = 100.0   # Hz — never a real grid value
 
-DELETE_WINDOW_NS = 1_000       # ±1 µs around each ts (covers any clock fuzz)
-
 CONFIRM_PHRASE = "delete corrupted powmr"
 
 
@@ -254,34 +252,42 @@ def main() -> int:
             print("Confirmation phrase did not match — aborting.")
             return 1
 
-        # ── Per-timestamp deletes ────────────────────────────────────────
-        delete_api = client.delete_api()
-        reg_clause = " OR ".join(f'reg="{r}"' for r in powmr_regs)
-        predicate  = f'_measurement="modbus" AND ({reg_clause})'
+        # ── Per-(timestamp, reg) deletes ─────────────────────────────────
+        # InfluxDB v2's delete predicate language doesn't support OR, so we
+        # can't list all PowMr regs in a single predicate. One delete per
+        # (timestamp, reg) pair is the only correct workaround — narrow time
+        # window keeps each call cheap.
+        delete_api  = client.delete_api()
+        total_calls = len(bad_ts) * len(powmr_regs)
+        print(f"\nDeleting {total_calls} (timestamp × reg) pairs "
+              f"({len(bad_ts)} timestamps × {len(powmr_regs)} regs)...")
 
-        print(f"\nDeleting at {len(bad_ts)} timestamp(s)...")
         failures = 0
+        done     = 0
         for i, ts in enumerate(bad_ts, 1):
             start_ns = ts - timedelta(microseconds=1)
             stop_ns  = ts + timedelta(microseconds=1)
-            try:
-                delete_api.delete(
-                    start=start_ns,
-                    stop=stop_ns,
-                    predicate=predicate,
-                    bucket=args.bucket,
-                    org=args.org,
-                )
-            except Exception as e:
-                failures += 1
-                print(f"  [{i}/{len(bad_ts)}] FAILED at {ts.astimezone(JST).isoformat()}: {e}")
-                if failures >= 5:
-                    sys.exit("Too many failures — aborting.")
-                continue
-            if i % 50 == 0 or i == len(bad_ts):
-                print(f"  [{i}/{len(bad_ts)}] {ts.astimezone(JST).isoformat()}")
+            for reg in powmr_regs:
+                done += 1
+                try:
+                    delete_api.delete(
+                        start=start_ns,
+                        stop=stop_ns,
+                        predicate=f'_measurement="modbus" AND reg="{reg}"',
+                        bucket=args.bucket,
+                        org=args.org,
+                    )
+                except Exception as e:
+                    failures += 1
+                    print(f"  [{done}/{total_calls}] FAILED ts={ts.astimezone(JST).isoformat()} "
+                          f"reg={reg}: {e}")
+                    if failures >= 5:
+                        sys.exit("Too many failures — aborting.")
+            if i % 10 == 0 or i == len(bad_ts):
+                print(f"  [{i}/{len(bad_ts)} ts] {ts.astimezone(JST).isoformat()}")
 
-        print(f"\nDone. {len(bad_ts) - failures} timestamp(s) cleaned, {failures} failure(s).")
+        print(f"\nDone. {done - failures}/{total_calls} delete calls succeeded, "
+              f"{failures} failure(s).")
         return 0 if failures == 0 else 2
 
 
