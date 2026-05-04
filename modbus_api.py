@@ -557,6 +557,31 @@ async def get_charging_priority():
 # ── Targets form ──────────────────────────────────────────────────────────────
 
 
+def _next_2259_date_iso() -> str:
+    """Return the ISO date of the next upcoming 22:59 in local time.
+
+    If the form is submitted before 22:59 today, the daily_target cron run
+    we want to skip is *today's*. Submitted at/after 22:59 — today's run
+    has already happened (or is about to), so the next run is tomorrow.
+    """
+    now = datetime.now()
+    nxt = now.replace(hour=22, minute=59, second=0, microsecond=0)
+    if now >= nxt:
+        nxt += timedelta(days=1)
+    return nxt.date().isoformat()
+
+
+def _skip_auto_view(targets: dict) -> tuple[bool, str]:
+    """Return (skip_auto_active, skip_auto_date) for template rendering."""
+    raw = targets.get("skip_next_auto")
+    if not raw:
+        return False, ""
+    today_iso = datetime.now().date().isoformat()
+    if raw < today_iso:
+        return False, ""  # stale flag — daily_target ignores it; treat as inactive
+    return True, raw
+
+
 def _override_view(targets: dict) -> tuple[str, str]:
     """Return (override_state, remaining_text) for template rendering.
 
@@ -592,10 +617,12 @@ async def set_targets_form(
         full_charge          = bool(targets.get("full_charge", False))
         last_full_charge     = targets.get("last_full_charge") or "never"
         override_state, override_remaining = _override_view(targets)
+        skip_auto, skip_auto_date          = _skip_auto_view(targets)
         log.debug(
             "/set_targets_form: loaded target_soc=%s  daily_charge_current=%s  "
-            "full_charge=%s  last_full_charge=%s  override=%s",
-            target_soc, daily_charge_current, full_charge, last_full_charge, override_state,
+            "full_charge=%s  last_full_charge=%s  override=%s  skip_auto=%s",
+            target_soc, daily_charge_current, full_charge, last_full_charge,
+            override_state, skip_auto,
         )
     except Exception as e:
         log.warning("/set_targets_form: could not read targets.json: %s — using defaults", e)
@@ -605,6 +632,8 @@ async def set_targets_form(
         last_full_charge     = "never"
         override_state       = "auto"
         override_remaining   = ""
+        skip_auto            = False
+        skip_auto_date       = ""
 
     return templates.TemplateResponse(
         "set_targets.html",
@@ -616,6 +645,8 @@ async def set_targets_form(
             "last_full_charge":     last_full_charge,
             "override_state":       override_state,
             "override_remaining":   override_remaining,
+            "skip_auto":            skip_auto,
+            "skip_auto_date":       skip_auto_date,
             "host_reboot_enabled":  HOST_REBOOT_ENABLED,
         },
     )
@@ -628,6 +659,7 @@ async def set_targets(
     daily_charge_current: int = Form(...),
     full_charge: bool         = Form(False),
     override_state: str       = Form("auto"),
+    skip_auto: bool           = Form(False),
     credentials: HTTPBasicCredentials = Depends(verify_credentials),
 ):
     errors: List[str] = []
@@ -657,6 +689,8 @@ async def set_targets(
             "last_full_charge":     last_full_charge,
             "override_state":       override_state if override_state in {"auto", *VALID_OVERRIDE_STATES} else "auto",
             "override_remaining":   "",
+            "skip_auto":            skip_auto,
+            "skip_auto_date":       "",
             "host_reboot_enabled":  HOST_REBOOT_ENABLED,
         }
         if extra:
@@ -683,20 +717,29 @@ async def set_targets(
         }
         override_summary = f"{override_state} for {OVERRIDE_TTL_MINUTES} min"
 
+    if skip_auto:
+        targets["skip_next_auto"] = _next_2259_date_iso()
+        skip_summary = f"skip 22:59 on {targets['skip_next_auto']}"
+    else:
+        targets.pop("skip_next_auto", None)
+        skip_summary = "no"
+
     try:
         with open(CONFIG_PATH, "w") as f:
             json.dump(targets, f)
         log.info(
             "/set_targets: saved target_soc=%d%%  daily_charge_current=%d A  "
-            "full_charge=%s  override=%s",
-            target_soc, daily_charge_current, full_charge, override_summary,
+            "full_charge=%s  override=%s  skip_auto=%s",
+            target_soc, daily_charge_current, full_charge, override_summary, skip_summary,
         )
         _, override_remaining = _override_view(targets)
+        _, skip_auto_date     = _skip_auto_view(targets)
         return _render(
             f"Targets updated: target_soc={target_soc}%, "
             f"daily_charge_current={daily_charge_current} A, "
-            f"full_charge={full_charge}, override={override_summary}",
-            extra={"override_remaining": override_remaining},
+            f"full_charge={full_charge}, override={override_summary}, "
+            f"skip_auto={skip_summary}",
+            extra={"override_remaining": override_remaining, "skip_auto_date": skip_auto_date},
         )
     except Exception as e:
         log.error("/set_targets: failed to write targets.json: %s", e)

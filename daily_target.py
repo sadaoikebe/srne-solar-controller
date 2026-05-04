@@ -325,6 +325,30 @@ def main() -> None:
     log.info("  Dry run       : %s", args.dry_run)
     log.info("=" * 60)
 
+    # ── Skip-tonight check ────────────────────────────────────────────────
+    # The targets form lets the user pre-load tonight's plan in the evening
+    # and tick "skip next 22:59 update" so this cron run doesn't overwrite
+    # their values. The flag is keyed by date (skip_next_auto = "YYYY-MM-DD")
+    # so it self-expires after the night it covers.
+    try:
+        with open(CONFIG_PATH) as f:
+            existing = json.load(f)
+    except Exception:
+        existing = {}
+    if existing.get("skip_next_auto") == date.today().isoformat():
+        log.info(
+            "skip_next_auto matches today — exiting without modifying targets.json"
+        )
+        if not args.dry_run:
+            existing.pop("skip_next_auto", None)
+            try:
+                with open(CONFIG_PATH, "w") as f:
+                    json.dump(existing, f)
+                log.info("Cleared skip_next_auto from %s", CONFIG_PATH)
+            except Exception as e:
+                log.error("Failed to clear skip_next_auto: %s", e)
+        return
+
     # ── Starting SoC ──────────────────────────────────────────────────────
     if args.start_soc is not None:
         battery_soc = float(args.start_soc)

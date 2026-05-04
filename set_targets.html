@@ -38,6 +38,19 @@
         </div>
         <p class="info">Last full charge: <strong>{{ last_full_charge }}</strong></p>
 
+        <div class="checkbox-row">
+            <label for="skip_auto">
+                <input type="checkbox" id="skip_auto" name="skip_auto" value="true"
+                       {% if skip_auto %}checked{% endif %}>
+                Skip next automatic 22:59 update
+            </label>
+        </div>
+        <p class="info">
+            Use this when you set tonight's plan manually and don't want the
+            22:59 cron to overwrite it. Self-clears after the run.
+            {% if skip_auto and skip_auto_date %}<br><strong>Will skip 22:59 on {{ skip_auto_date }}.</strong>{% endif %}
+        </p>
+
         <label for="override_state">Manual override (now):</label>
         <select id="override_state" name="override_state">
             <option value="auto"         {% if override_state == 'auto'         %}selected{% endif %}>Auto (no override)</option>
