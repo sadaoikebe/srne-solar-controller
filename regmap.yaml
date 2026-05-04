@@ -26,6 +26,10 @@
 "0x023d": { name: grid_l1,               unit: W }
 "0x023e": { name: grid_l2,               unit: W }
 
+"0x0220": { name: temp_dcdc_powmr,       unit: C, scale: 0.1 }
+"0x0221": { name: temp_inverter_powmr,   unit: C, scale: 0.1 }
+"0x0222": { name: temp_translator_powmr, unit: C, scale: 0.1 }
+
 "0xf02d": { name: batt_charge_daily,    unit: kWh, scale: 0.05 }
 "0xf02e": { name: batt_discharge_daily, unit: kWh, scale: 0.05 }
 "0xf02f": { name: pv_powmr_daily,       unit: kWh, scale: 0.1 }
