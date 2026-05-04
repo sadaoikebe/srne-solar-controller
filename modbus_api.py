@@ -342,6 +342,69 @@ async def get_limited_registers() -> Dict[str, int]:
             pass
 
 
+@app.get("/raw_read")
+async def raw_read(addr: str, count: int = 1, device: str = "powmr"):
+    """Read raw uint16 register values with no schema decoding.
+
+    For ad-hoc debugging — registers not yet in regmap.yaml, verifying
+    whether a register packs two 8-bit values into one 16-bit word, etc.
+
+      addr   : decimal ("259") or hex ("0x0103")
+      count  : 1..64 consecutive registers
+      device : "powmr" (holding regs) or "growatt" (input regs)
+
+    Each entry returns the raw uint16 plus pre-split views (hex, hi/lo bytes,
+    signed-int16) so you can eyeball the format without doing the bit math.
+    """
+    try:
+        address = int(addr, 0)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail=f"Invalid addr: {addr!r}")
+    if not (1 <= count <= 64):
+        raise HTTPException(status_code=400, detail="count must be 1..64")
+
+    if device == "powmr":
+        client = connect_modbus()
+        reader = client.read_holding_registers
+        label  = "PowMr"
+    elif device == "growatt":
+        client = connect_modbus2()
+        reader = client.read_input_registers
+        label  = "Growatt"
+    else:
+        raise HTTPException(status_code=400, detail="device must be powmr or growatt")
+
+    try:
+        rr = reader(address=address, count=count)
+        if hasattr(rr, "isError") and rr.isError():
+            log.error("/raw_read: %s read failed at 0x%04X/%d: %s", label, address, count, rr)
+            raise HTTPException(status_code=502, detail=f"{label} read failed: {rr}")
+        regs = getattr(rr, "registers", None) or []
+        out: Dict[str, Dict[str, int | str]] = {}
+        for i, v in enumerate(regs):
+            a   = address + i
+            v16 = int(v) & 0xFFFF
+            out[f"0x{a:04x}"] = {
+                "raw":    v16,
+                "hex":    f"0x{v16:04x}",
+                "hi":     (v16 >> 8) & 0xFF,
+                "lo":     v16 & 0xFF,
+                "signed": v16 - 0x10000 if v16 >= 0x8000 else v16,
+            }
+        log.info("/raw_read: %s addr=0x%04X count=%d -> %d regs", label, address, count, len(regs))
+        return out
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error("/raw_read: unexpected error: %s", e)
+        raise HTTPException(status_code=500, detail=f"Raw read error: {e}")
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
 # ── Write endpoints ───────────────────────────────────────────────────────────
 
 
