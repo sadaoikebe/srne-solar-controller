@@ -84,7 +84,7 @@ POWMR_HOLDING_BLOCKS: Tuple[Tuple[int, int], ...] = (
     (0x0107, 3),    # 0x0107–0x0109  PV1 voltage, current, power
     (0x010F, 3),    # 0x010F–0x0111  PV2 voltage, current, power
     (0x0213, 10),   # 0x0213–0x021C  grid/inverter V & freq, load L1
-    (0x0220, 3),    # 0x0220–0x0222  DC-DC, inverter, translator temps
+    (0x0220, 3),    # 0x0220–0x0222  DC-DC, inverter, transformer temps
     (0x022A, 3),    # 0x022A–0x022C  grid V L2, inverter V L2
     (0x0232, 3),    # 0x0232–0x0234  load active L2, load apparent L2
     (0x023D, 2),    # 0x023D–0x023E  grid power L1, L2
