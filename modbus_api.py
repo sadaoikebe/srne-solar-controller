@@ -346,15 +346,11 @@ async def get_limited_registers() -> Dict[str, int]:
 async def raw_read(addr: str, count: int = 1, device: str = "powmr"):
     """Read raw uint16 register values with no schema decoding.
 
-    For ad-hoc debugging — registers not yet in regmap.yaml, verifying
-    whether a register packs two 8-bit values into one 16-bit word, etc.
+    For ad-hoc debugging — registers not yet in regmap.yaml, sanity checks, etc.
 
       addr   : decimal ("259") or hex ("0x0103")
       count  : 1..64 consecutive registers
       device : "powmr" (holding regs) or "growatt" (input regs)
-
-    Each entry returns the raw uint16 plus pre-split views (hex, hi/lo bytes,
-    signed-int16) so you can eyeball the format without doing the bit math.
     """
     try:
         address = int(addr, 0)
@@ -385,11 +381,8 @@ async def raw_read(addr: str, count: int = 1, device: str = "powmr"):
             a   = address + i
             v16 = int(v) & 0xFFFF
             out[f"0x{a:04x}"] = {
-                "raw":    v16,
-                "hex":    f"0x{v16:04x}",
-                "hi":     (v16 >> 8) & 0xFF,
-                "lo":     v16 & 0xFF,
-                "signed": v16 - 0x10000 if v16 >= 0x8000 else v16,
+                "raw": v16,
+                "hex": f"0x{v16:04x}",
             }
         log.info("/raw_read: %s addr=0x%04X count=%d -> %d regs", label, address, count, len(regs))
         return out

@@ -2,7 +2,6 @@
 "0x0100": { name: battery_soc,           unit: "%"}
 "0x0101": { name: battery_voltage_powmr, unit: V,  scale: 0.1 }
 "0x0102": { name: battery_current_powmr, unit: A,  scale: 0.1, signed: true }
-"0x0103": { name: temp_controller,       unit: C,  scale: 0.1 }
 
 "0x0107": { name: pv1_voltage,           unit: V,  scale: 0.1 }
 "0x0108": { name: pv1_current,           unit: A,  scale: 0.1 }
