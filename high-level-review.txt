@@ -1,0 +1,216 @@
+
+  ---
+  High-Level Review: Solar Battery Controller
+
+  ---
+  1. The Forecasting Algorithm — Where It Stands and Where It Could Go
+
+  What the current approach gets right: The month × weather-tier lookup table is simple, deterministic, and completely transparent. For a first-generation controller, it's entirely
+  appropriate. The biggest risk with lookup tables is calibration drift — if your actual load or solar yield differs from when you tuned those numbers, the table silently gives wrong
+  answers.
+
+  The most impactful near-term improvement — replace weather codes with irradiance:
+
+  The JMA weather code is a coarse proxy. Open-Meteo (free, no API key, reliable) gives you shortwave_radiation_sum in MJ/m² for tomorrow directly. This single number correlates
+  linearly with expected PV output and eliminates the entire tier mapping step. Instead of "weather code 201 → tier 2 → look up table entry", you have "expected irradiance 12 MJ/m² →
+  expected generation 8 kWh → target SoC X%". The calculation becomes physically grounded rather than heuristic.
+
+  The second most impactful improvement — incorporate actual historical generation:
+
+  Your InfluxDB already stores solar generation from the Growatt. A rolling 7-day or 14-day mean of actual daily generation per irradiance unit gives you a site-specific calibration    
+  factor that accounts for panel age, soiling, shading, and orientation — things no weather API knows about your specific installation. This is not ML; it's a simple running average
+  that self-corrects.                                                                                                                                                                    
+                  
+  The conceptual gap in the current model:
+
+  The estimate_soc_at_2259 function uses a fixed AVERAGE_LOAD_W = 1000.0. Your actual load data is already in InfluxDB. A 7-day trailing average of load per time-of-day (a simple lookup
+   by hour) would make this estimate far more accurate — especially on weekends vs weekdays, which may differ significantly.
+                                                                                                                                                                                         
+  Multi-day lookahead:                                                                                                                                                                   
+  
+  Today the planner sees one day ahead. A 3-day irradiance forecast changes the strategy meaningfully: if tomorrow looks sunny but the day after looks rainy and the forecast after that 
+  is also rainy, you might choose a higher tonight's target knowing you won't recharge well for two days. This is just one extra level of conditional logic, not a complex algorithm.
+                                                                                                                                                                                         
+  True ML (when it makes sense):
+
+  It is probably not worth pursuing until you have 6–12 months of InfluxDB data. At that point, a simple gradient-boosted regression (scikit-learn, ~20 lines) trained on                
+  (irradiance_forecast, month, weekday, current_soc, load_rolling_avg → optimal_target_soc) would likely outperform the lookup table meaningfully. The key is that ground truth is easy
+  to define: did the battery reach the target, and how much grid energy was wasted? That's a clean label.                                                                                
+                  
+  ---
+  2. Control UI — What's Missing and What Would Be Genuinely Valuable
+                                                                                                                                                                                         
+  The current UI is essentially a configuration file editor exposed as a web form. As soon as the system controls more decisions, the operator needs:
+                                                                                                                                                                                         
+  Immediate inverter commands (highest value, lowest complexity):                                                                                                                        
+  - Force mode override: lock to UTI_CHARGING / SBU / UTI_STOPPED for a fixed duration or until a threshold is crossed. E.g., "force grid charge until 80% SoC, then resume normal       
+  operation." Useful when you know tomorrow's generation will be zero (typhoon, long trip).                                                                                              
+  - Emergency stop of battery discharge: switch to UTI regardless of SoC, protecting the battery when something unexpected happens.
+  - Manual charge current bump: "charge at 120A for 30 minutes" without touching the nightly plan.                                                                                       
+                                                                                                                                                                                         
+  Plan override / re-plan (second highest value):                                                                                                                                        
+  - A "Re-run tonight's plan" button that calls daily_target.py with custom weather code or target SoC override. Currently this requires SSH access.                                     
+  - A "skip tonight's charging" button — if the batteries are already at 95% from a sunny day, you don't want to charge to the lookup table's winter-cloudy target.                      
+                  
+  Scheduled operations (medium value, enables new workflows):                                                                                                                            
+  - "Refresh cycle": Schedule a full 100% charge on a specific date, which overrides the normal taper and holds until fully saturated. This is the right way to trigger periodic cell
+  balancing without changing permanent config.                                                                                                                                           
+  - "Holiday mode": suspend night charging entirely during extended absence.
+                                                                                                                                                                                         
+  Live status panel (low implementation effort, high daily value):                                                                                                                       
+  - Current SoC, voltage, power flows, active state, time until next plan recalculation — even a static HTML page that auto-refreshes every 10 seconds would eliminate the need to open  
+  Grafana for a quick check.                                                                                                                                                             
+                                                                                                                                                                                         
+  ---                                                                                                                                                                                    
+  3. High-Level Architecture for an Expanded System
+                                                                                                                                                                                         
+  The central architectural problem right now is that targets.json is the shared state between all processes. It only holds two numbers and is written by three different programs. This
+  works but won't scale gracefully.                                                                                                                                                      
+                  
+  Here is a block-diagram level architecture for the expanded system:                                                                                                                    
+                  
+  ┌─────────────────────────────────────────────────────────────────┐                                                                                                                    
+  │                        User Interfaces                           │
+  │                                                                  │                                                                                                                   
+  │   ┌──────────────────┐   ┌──────────────────┐   ┌───────────┐  │
+  │   │  Grafana          │   │  Control Panel    │   │  Telegram │  │                                                                                                                   
+  │   │  (read-only viz)  │   │  (HTMX or SPA)   │   │  Bot      │  │                                                                                                                    
+  │   └────────┬─────────┘   └────────┬─────────┘   └─────┬─────┘  │                                                                                                                     
+  └────────────┼──────────────────────┼─────────────────── ┼ ───────┘                                                                                                                    
+               │                      │                     │                                                                                                                            
+               ▼                      ▼                     ▼                                                                                                                            
+  ┌────────────────────────────────────────────────────────────────┐                                                                                                                     
+  │                      Control API  (FastAPI)                      │                                                                                                                   
+  │                                                                  │
+  │  /api/state      — current live state, SoC, power flows         │                                                                                                                    
+  │  /api/override   — force mode, duration, cancel                 │                                                                                                                    
+  │  /api/plan       — read/write/rerun nightly plan                │                                                                                                                    
+  │  /api/schedule   — refresh cycle, holiday mode, etc.            │                                                                                                                    
+  │  /api/alerts     — configure notifications                       │                                                                                                                   
+  │                                                                  │                                                                                                                   
+  │  (also hosts the HTML control panel)                             │
+  └─────────────────────────────┬──────────────────────────────────┘                                                                                                                     
+                                 │
+                ┌────────────────┼──────────────────┐                                                                                                                                    
+                ▼                ▼                   ▼                                                                                                                                   
+  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────────┐
+  │   State Store    │  │  Modbus API      │  │    InfluxDB       │                                                                                                                      
+  │   (Redis or      │  │  (hardware       │  │  (time-series     │                                                                                                                      
+  │    SQLite)       │  │   abstraction)   │  │   storage)        │                                                                                                                      
+  │                  │  │                  │  │                   │                                                                                                                      
+  │  - active mode   │  │  PowMr  (serial) │  │  Grafana source   │                                                                                                                      
+  │  - plan targets  │  │  Growatt (serial) │  │  historical data  │                                                                                                                     
+  │  - overrides     │  └─────────────────┘  └──────────────────┘                                                                                                                        
+  │  - schedules     │                                                                                                                                                                   
+  │  - audit trail   │                                                                                                                                                                   
+  └────────┬────────┘
+           │  reads/writes                                                                                                                                                               
+           ▼
+  ┌────────────────────────────────────────────────────────────────┐                                                                                                                     
+  │                     Core Services                                │                                                                                                                   
+  │                                                                  │
+  │  ┌──────────────────┐  ┌──────────────────┐  ┌─────────────┐  │                                                                                                                      
+  │  │ battery_controller│  │  daily_planner    │  │  db_writer  │  │
+  │  │  (5s poll loop)   │  │  (22:59 cron)     │  │  (1m cron)  │  │
+  │  └──────────────────┘  └──────────────────┘  └─────────────┘  │                                                                                                                      
+  └────────────────────────────────────────────────────────────────┘
+                                                                                                                                                                                         
+  The three structural changes this represents:
+                                                                                                                                                                                         
+  1. State Store replaces targets.json. Redis is an excellent fit — it's Docker-native, trivially fast, supports pub/sub (battery_controller could subscribe to override events instead  
+  of polling a file), and gives you atomic writes. SQLite is a simpler option with no new container if Redis feels like overhead.
+  2. Control API is separated from Modbus API. The Modbus API stays as a pure hardware abstraction layer. The Control API handles business logic, operator intent, overrides, and        
+  schedules. This makes each service testable and replaceable independently.                                                                                                             
+  3. Override / schedule primitives are first-class concepts, not workarounds via SSH or config file editing.
+                                                                                                                                                                                         
+  ---             
+  4. Frontend Technology Choice                                                                                                                                                          
+                               
+  Jinja2 is reasonable for a two-field form. It becomes awkward the moment you need:
+  - Real-time values that update without a full page reload                                                                                                                              
+  - Confirmation dialogs before sending inverter commands                                                                                                                                
+  - Visual indicators of active state (button that turns green when SBU is active)                                                                                                       
+                                                                                                                                                                                         
+  HTMX is the right technology for this specific use case. The reasons:                                                                                                                  
+                                                                                                                                                                                         
+  - You stay entirely in Python/FastAPI. No separate build pipeline, no JavaScript framework to maintain.                                                                                
+  - HTMX lets server-rendered HTML fragments replace themselves on a timer (the live status panel), respond to button presses without page reloads, and show inline confirmation dialogs.
+  - A small, single-operator control panel is exactly the use case HTMX was designed for.                                                                                                
+  - Total JavaScript written: approximately zero.                                                                                                                                        
+                                                                                                                                                                                         
+  A full React or Vue SPA would give a smoother mobile experience and better real-time interactivity at scale, but for a single-operator system accessed from a browser, the maintenance 
+  burden of a separate frontend build pipeline is not justified. If you ever want a native mobile app (iOS/Android) to monitor the system, a clean JSON API from the Control API layer   
+  already supports that without changing anything else.                                                                                                                                  
+                  
+  ---
+  5. Battery Charging Control Logic — Conceptual Soundness
+                                                                                                                                                                                         
+  What is solid:
+                                                                                                                                                                                         
+  The dual-taper approach (SoC limits + voltage limits, taking the minimum) is the correct implementation of CC/CV-like charging behavior. The voltage taper going from 120A down to 2A  
+  between 55.2V and 56.9V is particularly important and well-calibrated — SoC readings are unreliable near full, but voltage does not lie. The HYSTERESIS_SOC and the SBU→UTI cooldown   
+  timer are both the right primitives to prevent oscillation.                                                                                                                            
+                  
+  The 51.2V parallel pack question:                                                                                                                                                      
+   
+  Two packs in parallel with independent BMSs is a well-understood configuration, and it is generally fine. The conceptual risk is that each BMS disconnects independently at its own    
+  protection threshold, and the inverter sees only the combined bus — it cannot distinguish "pack 1 is at 100%, pack 2 is at 70%" from "both packs at 85%". The current system cannot
+  observe this. If the two packs have even slightly different capacity or internal resistance, one will always reach full first and its BMS will go into balance mode, meaning           
+  effectively only one pack is charging for the last portion of every cycle.
+
+  This is worth monitoring. If you can read individual pack voltages (some BMSs expose this via RS485 with their own protocol), logging them to InfluxDB and graphing their divergence   
+  over time would be a valuable health indicator.
+                                                                                                                                                                                         
+  Cell balancing — the missing explicit strategy:                                                                                                                                        
+   
+  LiFePO4 cells balance passively only at top of charge, when the BMS bleeds current through balance resistors. If your nightly charge target is consistently 60–80% SoC (correctly      
+  optimizing for cycle life), the cells never spend meaningful time near 3.65V/cell, and passive balancing cannot equalize drift.
+                                                                                                                                                                                         
+  The consequence emerges slowly: one cell group reaches the BMS protection voltage at 85% overall SoC, tripping early cutoff, and apparent capacity shrinks. The fix is a scheduled     
+  periodic full charge — but it needs to be deliberately distinguishable from normal charging. Right now there is no "refresh cycle" mode; it would have to be done manually by
+  overriding the targets to 101%. Making it a first-class scheduled operation (triggerable from the UI, logged explicitly in InfluxDB) is worth doing before the packs are more than 2–3 
+  years old.      
+
+  Long-term capacity tracking — the missing metric:
+
+  The most valuable long-term health metric you are not currently recording is: "for the same starting SoC and same charge current, how many watt-hours did it take to reach target SoC?"
+   If this number grows over time, capacity is declining. It is a simple calculation from data already flowing through db_writer, and it would give early warning of degradation years
+  before symptoms become operationally significant.                                                                                                                                      
+                  
+  ---
+  6. Ideas You May Not Have Considered
+                                                                                                                                                                                         
+  Load-aware dynamic planning:
+                                                                                                                                                                                         
+  AVERAGE_LOAD_W = 1000.0 is your system's biggest source of planning error. Your actual load is in InfluxDB at 1-minute resolution. A trailing 7-day per-hour average (a 24-element     
+  lookup table, automatically updated from InfluxDB) would make the "SoC at 22:59" estimate dramatically more accurate. This single change would have more impact than any ML model.
+                                                                                                                                                                                         
+  Solar curtailment awareness:
+
+  If the Growatt is running at or near its rated output ceiling for extended periods, you are leaving free generation capacity on the table because the batteries are already full (or   
+  being charged too slowly to absorb it). Detecting curtailment — watching for sustained maximum output from the Growatt — and using it as a feedback signal to increase charge current
+  faster in the early morning is an efficiency opportunity that is invisible in the current architecture.                                                                                
+                  
+  Telegram (or ntfy.sh) for operational awareness:                                                                                                                                       
+   
+  Silent failure is the production enemy for an unattended system. A simple notification when: battery drops below 20%, inverter stops responding, nightly plan was recalculated, grid   
+  outage starts/ends — would eliminate the need to check Grafana proactively. ntfy.sh requires no bot registration and works via a simple HTTP POST. Telegram's Bot API is similarly
+  trivial. Both are worth doing before the system is fully unattended.                                                                                                                   
+                  
+  Electricity price signal integration:
+
+  If your tariff has more than two periods (some Japanese contracts have peak/shoulder/off-peak), the binary cheap / sbu_fixed model leaves arbitrage on the table. A generic time-period
+   table with associated "charge weight" could let the controller prioritize the cheapest hours within the cheap window, or even model the concept of "expensive enough to sell back" if
+  your contract allows it.                                                                                                                                                               
+                  
+  Multi-day battery planning:
+
+  The nightly plan looks exactly one day ahead. A 72-hour weather forecast changes the optimal strategy: if tonight's generation will be excellent but the next two days will be heavily 
+  overcast, charging less tonight makes sense only if you know the recovery window exists. A planner that looks 2–3 nights ahead and models battery state across the window could prevent
+   unnecessary deep discharge events during extended bad weather.                                                                                                                        
+                  
+  Audit log as a first-class concern:                                                                                                                                                    
+   
+  Every inverter command sent — mode change, current change, plan recalculation — should be written to an immutable time-ordered log (append to InfluxDB, or a dedicated log table in    
+  SQLite). This is separate from Python's logging module. Right now if something strange happens to the battery overnight, reconstructing "what did the controller actually do at 2:14 AM
+   and why" requires mining log files. A queryable command history in InfluxDB would make that reconstruction trivial in Grafana.                                                        
