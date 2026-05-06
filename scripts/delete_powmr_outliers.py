@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
 """Delete corrupted PowMr records from InfluxDB.
 
-A "bad" timestamp is one where ANY of the following holds in the modbus
-measurement, _field=value:
-
-  - reg in (0x0108, 0x0110) AND value >= 25.0   (PV current; max possible ~13 A)
-  - reg == 0x0100          AND value >= 110.0   (battery SoC > 100%)
-  - reg == 0x0215          AND value >= 100.0   (grid frequency)
+A "bad" timestamp is one where the grid frequency register (0x0215,
+_field=value) reads OUTSIDE the normal band [FREQ_MIN_HZ, FREQ_MAX_HZ].
+Real grid frequency is always ~50 Hz (East Japan) or ~60 Hz (West Japan)
+with a small margin; anything outside the band is a corrupted read
+caused by the modbus race condition.
 
 For each such timestamp, every PowMr point at that time (any reg starting
 with "0x", as derived from regmap.yaml) is deleted. Growatt data
 (decimal-keyed regs) is never touched.
 
-Default is dry-run. Pass --commit AND type the confirmation phrase to actually
-delete. The script prints per-criterion counts, a sample of bad timestamps,
-and a final summary so you can sanity-check before committing.
+This rule is intentionally aggressive — it deletes the entire PowMr row at
+any timestamp where the freq read is bogus, on the assumption that other
+PowMr fields at the same instant are likely also corrupted. Some legitimate
+data may be removed (e.g. true grid-lost readings reading 0 Hz), which is
+considered acceptable for cleaning up race-condition damage.
+
+Default is dry-run. Pass --commit AND type the confirmation phrase to
+actually delete.
 
 Usage:
   python scripts/delete_powmr_outliers.py --start "2026-05-01 12:00" --stop "2026-05-01 18:00"
@@ -39,13 +43,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 REGMAP_PATH  = PROJECT_ROOT / "regmap.yaml"
 DOTENV_PATH  = PROJECT_ROOT / ".env"
 
-PV_CURRENT_REGS  = ("0x0108", "0x0110")
-SOC_REG          = "0x0100"
-GRID_FREQ_REG    = "0x0215"
+GRID_FREQ_REG = "0x0215"
 
-PV_CURRENT_THRESHOLD = 25.0    # A — physically impossible per string
-SOC_THRESHOLD        = 110.0   # % — over 100, impossible
-FREQ_THRESHOLD       = 100.0   # Hz — never a real grid value
+FREQ_MIN_HZ = 50.0
+FREQ_MAX_HZ = 70.0
 
 CONFIRM_PHRASE = "delete corrupted powmr"
 
@@ -100,47 +101,13 @@ def _common_filter(bucket: str, start: datetime, stop: datetime) -> str:
     )
 
 
-def count_criterion(qa, org, bucket, start, stop, regs, threshold) -> int:
-    reg_filter = " or ".join(f'r.reg == "{r}"' for r in regs)
-    flux = f'''
-{_common_filter(bucket, start, stop)}
-  |> filter(fn: (r) => {reg_filter})
-  |> filter(fn: (r) => r._value >= {threshold})
-  |> count()
-  |> group()
-  |> sum()
-'''
-    total = 0
-    for table in qa.query(flux, org=org):
-        for record in table.records:
-            v = record.get_value()
-            if v:
-                total += int(v)
-    return total
-
-
 def find_bad_timestamps(qa, org, bucket, start, stop) -> List[datetime]:
-    pv_filter = " or ".join(f'r.reg == "{r}"' for r in PV_CURRENT_REGS)
+    """Distinct timestamps where 0x0215 (grid frequency) reads outside the normal band."""
     flux = f'''
-bad_pv =
-{_common_filter(bucket, start, stop)}
-  |> filter(fn: (r) => {pv_filter})
-  |> filter(fn: (r) => r._value >= {PV_CURRENT_THRESHOLD})
-  |> keep(columns: ["_time"])
-
-bad_soc =
-{_common_filter(bucket, start, stop)}
-  |> filter(fn: (r) => r.reg == "{SOC_REG}")
-  |> filter(fn: (r) => r._value >= {SOC_THRESHOLD})
-  |> keep(columns: ["_time"])
-
-bad_freq =
 {_common_filter(bucket, start, stop)}
   |> filter(fn: (r) => r.reg == "{GRID_FREQ_REG}")
-  |> filter(fn: (r) => r._value >= {FREQ_THRESHOLD})
+  |> filter(fn: (r) => r._value < {FREQ_MIN_HZ} or r._value > {FREQ_MAX_HZ})
   |> keep(columns: ["_time"])
-
-union(tables: [bad_pv, bad_soc, bad_freq])
   |> group()
   |> distinct(column: "_time")
   |> sort(columns: ["_value"])
@@ -205,26 +172,16 @@ def main() -> int:
     print(f"  Range (JST)  : {args.start.isoformat()}  →  {args.stop.isoformat()}")
     print(f"  Bucket       : {args.bucket}")
     print(f"  PowMr regs   : {len(powmr_regs)} from regmap.yaml")
+    print(f"  Criterion    : grid freq (0x0215) outside [{FREQ_MIN_HZ:.1f}, {FREQ_MAX_HZ:.1f}] Hz")
     print(f"  Mode         : {'COMMIT (will delete)' if args.commit else 'DRY-RUN'}")
     print("=" * 70)
 
     with InfluxDBClient(url=args.url, token=args.token, org=args.org, timeout=600_000) as client:
         qa = client.query_api()
 
-        # ── Per-criterion counts (sanity check) ──────────────────────────
-        print("\nPer-criterion match counts:")
-        n_pv = count_criterion(qa, args.org, args.bucket, args.start, args.stop,
-                               PV_CURRENT_REGS, PV_CURRENT_THRESHOLD)
-        n_soc = count_criterion(qa, args.org, args.bucket, args.start, args.stop,
-                                (SOC_REG,), SOC_THRESHOLD)
-        n_freq = count_criterion(qa, args.org, args.bucket, args.start, args.stop,
-                                 (GRID_FREQ_REG,), FREQ_THRESHOLD)
-        print(f"  PV current  >= {PV_CURRENT_THRESHOLD:>5} A : {n_pv}")
-        print(f"  Battery SoC >= {SOC_THRESHOLD:>5} %  : {n_soc}")
-        print(f"  Grid freq   >= {FREQ_THRESHOLD:>5} Hz : {n_freq}")
-
         # ── Distinct bad timestamps ──────────────────────────────────────
-        print("\nResolving distinct bad timestamps...")
+        print(f"\nFinding timestamps where grid freq is outside "
+              f"[{FREQ_MIN_HZ:.1f}, {FREQ_MAX_HZ:.1f}] Hz...")
         bad_ts = find_bad_timestamps(qa, args.org, args.bucket, args.start, args.stop)
         print(f"  {len(bad_ts)} unique timestamp(s) to clean")
         print_sample(bad_ts)
