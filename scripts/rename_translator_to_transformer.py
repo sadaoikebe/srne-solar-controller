@@ -1,30 +1,34 @@
 #!/usr/bin/env python3
-"""Rename temp_translator_powmr → temp_transformer_powmr in InfluxDB.
+"""Delete temp_translator_powmr records from InfluxDB.
 
-Why: register 0x0222 was originally added to regmap.yaml as
+Background: register 0x0222 was originally added to regmap.yaml as
 "temp_translator_powmr". "Translator" is a mistranslation of the Chinese
-变压器 (biànyāqì) — the correct English term is "transformer". The regmap
-has been corrected, but any data written before the redeploy still carries
-the old `name` tag and won't match dashboard filters on the new name.
+变压器 — the correct English term is "transformer". The regmap has been
+corrected, so all new writes carry name="temp_transformer_powmr". The
+transformer copy already exists for the affected window, so this script
+just removes the residual translator-tagged rows. No migration / no copy.
 
-InfluxDB v2 has no UPDATE — this script implements the rename as:
+Why this is a delete (not a rename) and how the reserved-word bug is fixed:
+the previous rename script tried to delete with predicate
+`name="temp_translator_powmr"`, but `name` is a reserved word in
+InfluxDB v2's delete-predicate parser. We sidestep that by deleting
+per-timestamp using ONLY `_measurement` and `reg` — Flux QUERIES still
+accept `r.name`, so the translator timestamps are located that way first.
 
-  1. Query every (measurement="modbus", name="temp_translator_powmr",
-     reg="0x0222") point in the given JST window, recovering its tags
-     (reg, unit) and fields (value, raw).
-  2. Write each one back with name="temp_transformer_powmr" — same
-     timestamp, same reg, same unit, same fields. Same timestamp + tagset
-     means InfluxDB upserts, so re-running after a partial failure is safe.
-  3. Delete the originals via a single predicate-based delete call.
+Side effect: at any timestamp where transformer also exists (e.g. samples
+the earlier failed rename script wrote a copy at), the per-(ts, reg)
+delete will remove that transformer point too, since the predicate cannot
+distinguish names. This is acceptable — re-migration is out of scope and
+the dashboard runs on transformer data at later timestamps anyway.
 
 Default is dry-run. Pass --commit AND type the confirmation phrase to
-actually rewrite. Always run dry-run first to confirm scope.
+actually delete. Always run dry-run first to confirm scope.
 
 Usage:
-  python scripts/rename_translator_to_transformer.py \
+  python scripts/rename_translator_to_transformer.py \\
       --start "2026-05-04 00:00" --stop "2026-05-05 12:00"
 
-  python scripts/rename_translator_to_transformer.py \
+  python scripts/rename_translator_to_transformer.py \\
       --start "2026-05-04 00:00" --stop "2026-05-05 12:00" --commit
 """
 from __future__ import annotations
@@ -34,10 +38,9 @@ import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List, NamedTuple
+from typing import List
 
-from influxdb_client import InfluxDBClient, Point
-from influxdb_client.client.write_api import SYNCHRONOUS
+from influxdb_client import InfluxDBClient
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -46,9 +49,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DOTENV_PATH  = PROJECT_ROOT / ".env"
 
 OLD_NAME       = "temp_translator_powmr"
-NEW_NAME       = "temp_transformer_powmr"
 TARGET_REG     = "0x0222"  # only register that ever carried the old name
-CONFIRM_PHRASE = "rename translator to transformer"
+CONFIRM_PHRASE = "delete translator"
 
 
 # ── Config ───────────────────────────────────────────────────────────────────
@@ -78,16 +80,13 @@ def parse_jst(s: str) -> datetime:
 
 # ── Query ────────────────────────────────────────────────────────────────────
 
-class Row(NamedTuple):
-    ts:    datetime
-    reg:   str
-    unit:  str
-    value: float
-    raw:   int
+def find_translator_timestamps(qa, org, bucket, start, stop) -> List[datetime]:
+    """Distinct timestamps where the translator-named point exists.
 
-
-def find_old_name_rows(qa, org, bucket, start, stop) -> List[Row]:
-    """Pivot value+raw into one row per timestamp; preserve reg/unit tags."""
+    Flux QUERIES allow filtering on `r.name`, so we use it here to locate
+    the rows. The reserved-word restriction only applies to the delete
+    predicate parser, not to Flux.
+    """
     flux = f'''
 from(bucket: "{bucket}")
   |> range(start: {start.isoformat()}, stop: {stop.isoformat()})
@@ -96,43 +95,35 @@ from(bucket: "{bucket}")
         and r.name == "{OLD_NAME}"
         and r.reg == "{TARGET_REG}"
      )
-  |> pivot(rowKey: ["_time", "reg", "name", "unit"], columnKey: ["_field"], valueColumn: "_value")
-  |> sort(columns: ["_time"])
+  |> keep(columns: ["_time"])
+  |> group()
+  |> distinct(column: "_time")
+  |> sort(columns: ["_value"])
 '''
-    rows: List[Row] = []
+    seen, out = set(), []
     for table in qa.query(flux, org=org):
         for record in table.records:
-            value = record.values.get("value")
-            raw   = record.values.get("raw")
-            if value is None or raw is None:
-                # Should never happen — db_writer always writes both fields.
-                continue
-            rows.append(Row(
-                ts    = record.get_time(),
-                reg   = record.values.get("reg", ""),
-                unit  = record.values.get("unit", ""),
-                value = float(value),
-                raw   = int(raw),
-            ))
-    return rows
+            ts = record.get_value()
+            if ts not in seen:
+                seen.add(ts)
+                out.append(ts)
+    return out
 
 
 # ── Reporting ────────────────────────────────────────────────────────────────
 
-def print_sample(rows: List[Row], n: int = 5) -> None:
-    if not rows:
+def print_sample(timestamps: List[datetime], n: int = 5) -> None:
+    if not timestamps:
         return
     print("  First few:")
-    for r in rows[:n]:
-        print(f"    {r.ts.astimezone(JST).isoformat()}  reg={r.reg}  unit={r.unit}  "
-              f"value={r.value}  raw={r.raw}")
-    if len(rows) > 2 * n:
-        print(f"    ... ({len(rows) - 2*n} more)")
-    if len(rows) > n:
+    for ts in timestamps[:n]:
+        print(f"    {ts.astimezone(JST).isoformat()}")
+    if len(timestamps) > 2 * n:
+        print(f"    ... ({len(timestamps) - 2*n} more)")
+    if len(timestamps) > n:
         print("  Last few:")
-        for r in rows[-n:]:
-            print(f"    {r.ts.astimezone(JST).isoformat()}  reg={r.reg}  unit={r.unit}  "
-                  f"value={r.value}  raw={r.raw}")
+        for ts in timestamps[-n:]:
+            print(f"    {ts.astimezone(JST).isoformat()}")
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -141,7 +132,7 @@ def main() -> int:
     load_dotenv(DOTENV_PATH)
 
     parser = argparse.ArgumentParser(
-        description=f"Rename {OLD_NAME} → {NEW_NAME} in InfluxDB (dry-run by default).",
+        description=f"Delete {OLD_NAME} records in InfluxDB (dry-run by default).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -150,7 +141,7 @@ def main() -> int:
     parser.add_argument("--stop",  type=parse_jst, required=True,
                         help='JST datetime, e.g. "2026-05-05 12:00"')
     parser.add_argument("--commit", action="store_true",
-                        help="Actually rewrite + delete (default is dry-run).")
+                        help="Actually delete (default is dry-run).")
     parser.add_argument("--url",    default=os.environ.get("INFLUX_URL", "http://localhost:8086"))
     parser.add_argument("--token",  default=os.environ.get("INFLUX_TOKEN"))
     parser.add_argument("--org",    default=os.environ.get("INFLUX_ORG"))
@@ -163,36 +154,33 @@ def main() -> int:
         sys.exit("Missing INFLUX_TOKEN / INFLUX_ORG / INFLUX_BUCKET (env or CLI).")
 
     print("=" * 70)
-    print(f"Rename {OLD_NAME}  →  {NEW_NAME}")
+    print(f"Delete {OLD_NAME}")
     print(f"  Range (JST)  : {args.start.isoformat()}  →  {args.stop.isoformat()}")
     print(f"  Bucket       : {args.bucket}")
     print(f"  Target reg   : {TARGET_REG}")
-    print(f"  Mode         : {'COMMIT (will rewrite + delete)' if args.commit else 'DRY-RUN'}")
+    print(f"  Mode         : {'COMMIT (will delete)' if args.commit else 'DRY-RUN'}")
     print("=" * 70)
 
     with InfluxDBClient(url=args.url, token=args.token, org=args.org, timeout=600_000) as client:
         qa = client.query_api()
 
-        print(f'\nFinding rows with name="{OLD_NAME}" AND reg="{TARGET_REG}"...')
-        rows = find_old_name_rows(qa, args.org, args.bucket, args.start, args.stop)
-        print(f"  {len(rows)} row(s) match")
-        print_sample(rows)
+        print(f'\nFinding timestamps with name="{OLD_NAME}" AND reg="{TARGET_REG}"...')
+        timestamps = find_translator_timestamps(qa, args.org, args.bucket, args.start, args.stop)
+        print(f"  {len(timestamps)} unique timestamp(s) carry the old name")
+        print_sample(timestamps)
 
-        if not rows:
+        if not timestamps:
             print("\nNothing to do.")
             return 0
 
         if not args.commit:
-            print("\nDRY-RUN — no data was changed. Re-run with --commit to rewrite + delete.")
+            print("\nDRY-RUN — no data was changed. Re-run with --commit to delete.")
             return 0
 
         # ── Confirmation gate ────────────────────────────────────────────
-        print("\nThis will:")
-        print(f"  1. Write {len(rows)} replacement point(s) tagged name=\"{NEW_NAME}\"")
-        print(f"     (same timestamp, reg, unit, value, raw → InfluxDB upserts)")
-        print(f"  2. Delete every point matching:")
-        print(f"     _measurement=\"modbus\" AND name=\"{OLD_NAME}\" AND reg=\"{TARGET_REG}\"")
-        print(f"     in the window [{args.start.isoformat()}, {args.stop.isoformat()}].")
+        print(f'\nThis will permanently delete every point at the listed timestamps')
+        print(f'matching _measurement="modbus" AND reg="{TARGET_REG}"')
+        print(f"(also removes any transformer-tagged copy at those exact timestamps).")
         print(f'\nType exactly:  {CONFIRM_PHRASE}')
         try:
             typed = input("> ").strip()
@@ -202,53 +190,44 @@ def main() -> int:
             print("Confirmation phrase did not match — aborting.")
             return 1
 
-        # ── Step 1: write replacements ───────────────────────────────────
-        # Write FIRST so a delete failure leaves both copies intact (recoverable),
-        # never zero copies (data loss). Same (measurement, tagset, _time)
-        # makes the write an upsert, so re-running is safe.
-        print(f"\nWriting {len(rows)} replacement point(s) under name=\"{NEW_NAME}\"...")
-        with client.write_api(write_options=SYNCHRONOUS) as wa:
-            points = [
-                Point("modbus")
-                    .time(r.ts)
-                    .tag("reg",  r.reg)
-                    .tag("name", NEW_NAME)
-                    .tag("unit", r.unit)
-                    .field("value", r.value)
-                    .field("raw",   r.raw)
-                for r in rows
-            ]
-            wa.write(bucket=args.bucket, org=args.org, record=points)
-        print("  Write complete.")
+        # ── Per-timestamp deletes ────────────────────────────────────────
+        # `name` is a reserved word in InfluxDB v2's delete predicate parser,
+        # so we predicate only on `_measurement` and `reg`. To avoid touching
+        # other timestamps at this reg, we delete in a 1µs window around
+        # each translator timestamp.
+        delete_api = client.delete_api()
+        print(f"\nDeleting {len(timestamps)} timestamp(s)...")
 
-        # ── Step 2: delete originals ─────────────────────────────────────
-        # InfluxDB v2 delete predicate supports AND on tag equality (no OR).
-        # One predicate covers every point in the window matching name+reg.
-        print(f'\nDeleting originals (name="{OLD_NAME}" AND reg="{TARGET_REG}")...')
-        try:
-            client.delete_api().delete(
-                start=args.start,
-                stop=args.stop,
-                predicate=f'_measurement="modbus" AND name="{OLD_NAME}" AND reg="{TARGET_REG}"',
-                bucket=args.bucket,
-                org=args.org,
-            )
-        except Exception as e:
-            print(f"  DELETE FAILED: {e}")
-            print(f"  Replacements were written successfully — both copies now exist.")
-            print(f"  Re-run this script to retry the delete (the write step is idempotent).")
-            return 2
-        print("  Delete complete.")
+        failures = 0
+        for i, ts in enumerate(timestamps, 1):
+            start_ns = ts - timedelta(microseconds=1)
+            stop_ns  = ts + timedelta(microseconds=1)
+            try:
+                delete_api.delete(
+                    start=start_ns,
+                    stop=stop_ns,
+                    predicate=f'_measurement="modbus" AND reg="{TARGET_REG}"',
+                    bucket=args.bucket,
+                    org=args.org,
+                )
+            except Exception as e:
+                failures += 1
+                print(f"  [{i}/{len(timestamps)}] FAILED ts={ts.astimezone(JST).isoformat()}: {e}")
+                if failures >= 5:
+                    sys.exit("Too many failures — aborting.")
+            if i % 10 == 0 or i == len(timestamps):
+                print(f"  [{i}/{len(timestamps)}] {ts.astimezone(JST).isoformat()}")
 
         # ── Verify ───────────────────────────────────────────────────────
         print("\nVerifying...")
-        remaining = find_old_name_rows(qa, args.org, args.bucket, args.start, args.stop)
+        remaining = find_translator_timestamps(qa, args.org, args.bucket, args.start, args.stop)
         if remaining:
-            print(f"  WARNING: {len(remaining)} row(s) with old name still present.")
+            print(f"  WARNING: {len(remaining)} timestamp(s) with old name still present.")
             return 2
-        print("  OK — 0 rows under old name remain.")
-        print(f"\nDone. {len(rows)} point(s) renamed: {OLD_NAME} → {NEW_NAME}.")
-        return 0
+        print("  OK — 0 timestamps under old name remain.")
+        print(f"\nDone. {len(timestamps) - failures}/{len(timestamps)} delete calls succeeded, "
+              f"{failures} failure(s).")
+        return 0 if failures == 0 else 2
 
 
 if __name__ == "__main__":
