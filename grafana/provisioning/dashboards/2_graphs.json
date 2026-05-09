@@ -962,326 +962,340 @@
       "type": "timeseries"
     },
     {
-      "datasource": {
-        "type": "influxdb",
-        "uid": "srne-influxdb"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "lineWidth": 2,
-            "lineInterpolation": "linear",
-            "showPoints": "never",
-            "drawStyle": "line",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "pointSize": 4,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "volt"
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Grid L1"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#5794F2",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Grid L2"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#73BF69",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Inverter L1"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#8AB8FF",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Inverter L2"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#97E180",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Inverter L1"
-            },
-            "properties": [
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "fill": "dash",
-                  "dash": [
-                    8,
-                    4
-                  ]
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Inverter L2"
-            },
-            "properties": [
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "fill": "dash",
-                  "dash": [
-                    8,
-                    4
-                  ]
-                }
-              }
-            ]
-          }
-        ]
-      },
+      "collapsed": true,
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 1,
+        "w": 24,
         "x": 0,
         "y": 19
       },
-      "id": 8,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
+      "id": 302,
+      "panels": [
         {
           "datasource": {
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /^(grid_voltage_l[12]|inverter_voltage_l[12])$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"Grid L1\":     if exists r.grid_voltage_l1     then r.grid_voltage_l1     else float(v: \"NaN\"),\n      \"Grid L2\":     if exists r.grid_voltage_l2     then r.grid_voltage_l2     else float(v: \"NaN\"),\n      \"Inverter L1\": if exists r.inverter_voltage_l1 then r.inverter_voltage_l1 else float(v: \"NaN\"),\n      \"Inverter L2\": if exists r.inverter_voltage_l2 then r.inverter_voltage_l2 else float(v: \"NaN\")\n  }))",
-          "refId": "A"
-        }
-      ],
-      "title": "Grid Voltage — Grid vs Inverter",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "influxdb",
-        "uid": "srne-influxdb"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "lineWidth": 2,
+                "lineInterpolation": "linear",
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "pointSize": 4,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "volt"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Grid L1"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#5794F2",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Grid L2"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#73BF69",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Inverter L1"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#8AB8FF",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Inverter L2"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#97E180",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Inverter L1"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        8,
+                        4
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Inverter L2"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        8,
+                        4
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
           },
-          "custom": {
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "lineWidth": 2,
-            "lineInterpolation": "linear",
-            "showPoints": "never",
-            "drawStyle": "line",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 20
+          },
+          "id": 8,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
             },
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "pointSize": 4,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
             }
           },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "hertz"
+          "targets": [
+            {
+              "datasource": {
+                "type": "influxdb",
+                "uid": "srne-influxdb"
+              },
+              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /^(grid_voltage_l[12]|inverter_voltage_l[12])$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"Grid L1\":     if exists r.grid_voltage_l1     then r.grid_voltage_l1     else float(v: \"NaN\"),\n      \"Grid L2\":     if exists r.grid_voltage_l2     then r.grid_voltage_l2     else float(v: \"NaN\"),\n      \"Inverter L1\": if exists r.inverter_voltage_l1 then r.inverter_voltage_l1 else float(v: \"NaN\"),\n      \"Inverter L2\": if exists r.inverter_voltage_l2 then r.inverter_voltage_l2 else float(v: \"NaN\")\n  }))",
+              "refId": "A"
+            }
+          ],
+          "title": "Grid Voltage — Grid vs Inverter",
+          "type": "timeseries"
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Grid"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#FADE2A",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Inverter"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#73BF69",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Inverter"
-            },
-            "properties": [
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "fill": "dash",
-                  "dash": [
-                    8,
-                    4
-                  ]
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 19
-      },
-      "id": 9,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
         {
           "datasource": {
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /^(grid_frequency|inverter_frequency)$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"Grid\":     if exists r.grid_frequency     then r.grid_frequency     else float(v: \"NaN\"),\n      \"Inverter\": if exists r.inverter_frequency then r.inverter_frequency else float(v: \"NaN\")\n  }))",
-          "refId": "A"
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "lineWidth": 2,
+                "lineInterpolation": "linear",
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "pointSize": 4,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "hertz"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Grid"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#FADE2A",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Inverter"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#73BF69",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Inverter"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        8,
+                        4
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 20
+          },
+          "id": 9,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "influxdb",
+                "uid": "srne-influxdb"
+              },
+              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name =~ /^(grid_frequency|inverter_frequency)$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"Grid\":     if exists r.grid_frequency     then r.grid_frequency     else float(v: \"NaN\"),\n      \"Inverter\": if exists r.inverter_frequency then r.inverter_frequency else float(v: \"NaN\")\n  }))",
+              "refId": "A"
+            }
+          ],
+          "title": "Frequency — Grid vs Inverter",
+          "type": "timeseries"
         }
       ],
-      "title": "Frequency — Grid vs Inverter",
-      "type": "timeseries"
+      "title": "Grid Voltage & Frequency",
+      "type": "row"
     },
     {
       "collapsed": false,
@@ -1289,7 +1303,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 27
+        "y": 20
       },
       "id": 10,
       "title": "🔋  Battery",
@@ -1389,7 +1403,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 28
+        "y": 21
       },
       "id": 11,
       "options": {
@@ -1539,7 +1553,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 28
+        "y": 21
       },
       "id": 14,
       "options": {
@@ -1573,7 +1587,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 36
+        "y": 29
       },
       "id": 16,
       "panels": [
@@ -1668,7 +1682,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 37
+            "y": 30
           },
           "id": 12,
           "options": {
@@ -1814,7 +1828,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 37
+            "y": 30
           },
           "id": 13,
           "options": {
@@ -1852,7 +1866,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 37
+        "y": 30
       },
       "id": 100,
       "title": "📈  Daily Energy (kWh)",
@@ -1895,7 +1909,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 38
+        "y": 31
       },
       "id": 101,
       "options": {
@@ -1949,7 +1963,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 38
+        "y": 31
       },
       "id": 103,
       "options": {
@@ -1977,7 +1991,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 46
+        "y": 39
       },
       "id": 104,
       "panels": [
@@ -2003,7 +2017,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 47
+            "y": 40
           },
           "id": 102,
           "options": {
@@ -2035,7 +2049,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 47
+        "y": 40
       },
       "id": 200,
       "title": "📊  Cumulative Energy (kWh)",
@@ -2072,7 +2086,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 48
+        "y": 41
       },
       "id": 201,
       "options": {
@@ -2112,7 +2126,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 48
+        "y": 41
       },
       "id": 202,
       "options": {
@@ -2140,7 +2154,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 56
+        "y": 49
       },
       "id": 300,
       "title": "🌡️  Temperatures",
@@ -2171,7 +2185,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 57
+        "y": 50
       },
       "id": 301,
       "options": {
