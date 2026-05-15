@@ -79,7 +79,7 @@ class ChargingPriority(IntEnum):
 # ── Register maps ─────────────────────────────────────────────────────────────
 
 POWMR_HOLDING_BLOCKS: Tuple[Tuple[int, int], ...] = (
-    (0x0100, 32),   # 0x0100–0x011F
+    (0x0100, 18),   # 0x0100–0x0111
     (0x0200, 32),   # 0x0200–0x021F
     (0x0220, 32),   # 0x0220–0x023F
     (0xF000, 32),   # 0xF000–0xF01F
