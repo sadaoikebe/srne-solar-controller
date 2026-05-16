@@ -223,6 +223,11 @@ modbus2 = get_modbus_client(vid=1250,  pid=5137,  label="Growatt")  # Growatt in
 
 _powmr_lock = asyncio.Lock()
 
+# Latching readiness flag for `/health`. Once a single PowMr register read
+# succeeds, the bus is considered healthy and `/health` stops touching it.
+# Docker's healthcheck can then poll forever without loading the bus.
+_ready: bool = False
+
 
 def connect_modbus() -> modbusClient.ModbusSerialClient:
     if modbus is None:
@@ -264,6 +269,42 @@ def verify_credentials(
 
 
 # ── Read endpoints ────────────────────────────────────────────────────────────
+
+
+@app.get("/health")
+async def health():
+    """Latching readiness probe used by Docker's healthcheck and depends_on.
+
+    While `_ready` is False, perform a single PowMr register read to confirm
+    the bus is alive. On first success, latch `_ready = True` — every
+    subsequent call returns immediately without touching the bus, so the
+    healthcheck can poll forever at no Modbus cost.
+    """
+    global _ready
+    if _ready:
+        return {"status": "ready"}
+
+    async with _powmr_lock:
+        client = connect_modbus()
+        try:
+            rr = client.read_holding_registers(address=0x0100, count=1)
+            if hasattr(rr, "isError") and rr.isError():
+                raise HTTPException(status_code=503, detail=f"Not ready: {rr}")
+            if not getattr(rr, "registers", None):
+                raise HTTPException(status_code=503, detail="Not ready: no registers")
+            _ready = True
+            log.info("/health: readiness latched — PowMr responsive")
+            return {"status": "ready"}
+        except HTTPException:
+            raise
+        except Exception as e:
+            log.warning("/health: probe failed (will retry): %s", e)
+            raise HTTPException(status_code=503, detail=f"Not ready: {e}")
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
 
 
 @app.get("/registers", response_model=Dict[str, int])

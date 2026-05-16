@@ -71,9 +71,9 @@ services:
     group_add:
       - dialout
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:5004/limited_registers || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:5004/health || exit 1"]
       interval: 3s
-      timeout: 2s
+      timeout: 5s
       retries: 10
       start_period: 5s
 
