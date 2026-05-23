@@ -201,7 +201,7 @@ def get_modbus_client(
         )
         return None
     log.info("%s device found: %s  (VID=0x%04X  PID=0x%04X)", label, port, vid, pid)
-    return modbusClient.ModbusSerialClient(port=port, baudrate=9600, timeout=3)
+    return modbusClient.ModbusSerialClient(port=port, baudrate=9600, timeout=1)
 
 
 # Module-level clients — found once at startup.
@@ -258,6 +258,15 @@ def connect_modbus() -> modbusClient.ModbusSerialClient:
     if not modbus.connect():
         log.error("Failed to open serial connection to PowMr")
         raise HTTPException(status_code=500, detail="Failed to connect to PowMr Modbus device")
+    # Drain stale bytes from the kernel tty input buffer before transacting.
+    # Without this, a response that arrives after a previous timeout sits in
+    # the buffer and gets decoded as the reply to the next request, producing
+    # framer desync (e.g. a WriteRegisterResponse returned from a read,
+    # truncated register lists) that persists across close/reopen.
+    try:
+        modbus.socket.reset_input_buffer()
+    except Exception:
+        pass
     _powmr_open_count += 1
     log.info(
         "PowMr port open  #%d (closes=%d leak=%d)",
