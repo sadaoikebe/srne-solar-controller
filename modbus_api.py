@@ -143,6 +143,12 @@ def _read_holding_blocks(
         if regs is None:
             log.error("%s: holding block 0x%04X/%d returned no registers: %s", label, start, count, rr)
             raise RuntimeError(f"Holding read missing 'registers' @0x{start:04X}/n={count}: {rr}")
+        if len(regs) != count:
+            log.error("%s: holding block 0x%04X/%d returned %d registers (expected %d)",
+                      label, start, count, len(regs), count)
+            raise RuntimeError(
+                f"Holding read wrong count @0x{start:04X}/n={count}: got {len(regs)}"
+            )
         for i, v in enumerate(regs):
             out[start + i] = int(v) & 0xFFFF
         log.debug("%s: holding block 0x%04X OK (%d regs)", label, start, len(regs))
@@ -163,6 +169,12 @@ def _read_input_blocks(
         if regs is None:
             log.error("%s: input block %d/%d returned no registers: %s", label, start, count, rr)
             raise RuntimeError(f"Input read missing 'registers' @{start}/n={count}: {rr}")
+        if len(regs) != count:
+            log.error("%s: input block %d/%d returned %d registers (expected %d)",
+                      label, start, count, len(regs), count)
+            raise RuntimeError(
+                f"Input read wrong count @{start}/n={count}: got {len(regs)}"
+            )
         for i, v in enumerate(regs):
             out[start + i] = int(v) & 0xFFFF
         log.debug("%s: input block %d OK (%d regs)", label, start, len(regs))
@@ -181,6 +193,122 @@ def _as_dec_dict(
 ) -> Dict[str, int]:
     w = set(whitelist)
     return {str(a): raw[a] for a in sorted(raw) if a in w}
+
+
+# ── Range validation ──────────────────────────────────────────────────────────
+#
+# Catches the silent-pass-through case where stale framer bytes happen to
+# decode as a valid ReadHoldingRegistersResponse with the expected register
+# count but garbage values. Without this, battery_controller and db_writer
+# would act on / record those values. With it, an out-of-range read fails
+# the whole request (HTTP 500) and the next request gets a fresh drain.
+#
+# Tuples are (scale, signed, min_real, max_real). Real values are computed
+# as raw * scale (with signed conversion when applicable). Combined 32-bit
+# Growatt keys (e.g. "3-4") combine as (raw[left] << 16) | raw[right].
+
+_REAL_RANGES: Dict[str, Tuple[float, bool, float, float]] = {
+    # PowMr (hex)
+    "0x0100": (1.0,  False,      0,    100),  # battery_soc (%)
+    "0x0101": (0.1,  False,     45,     65),  # battery_voltage_powmr (V)
+    "0x0102": (0.1,  True,    -300,    300),  # battery_current_powmr (A)
+    "0x0107": (0.1,  False,      0,    600),  # pv1_voltage (V)
+    "0x0108": (0.1,  False,      0,     25),  # pv1_current (A)
+    "0x0109": (1.0,  False,      0,   6000),  # pv1_power (W)
+    "0x010f": (0.1,  False,      0,    600),  # pv2_voltage (V)
+    "0x0110": (0.1,  False,      0,     25),  # pv2_current (A)
+    "0x0111": (1.0,  False,      0,   6000),  # pv2_power (W)
+    "0x0213": (0.1,  False,     50,    120),  # grid_voltage_l1 (V)
+    "0x0215": (0.01, False,     55,     65),  # grid_frequency (Hz)
+    "0x0216": (0.1,  False,     50,    120),  # inverter_voltage_l1 (V)
+    "0x0218": (0.01, False,     55,     65),  # inverter_frequency (Hz)
+    "0x021b": (1.0,  False,      0,  20000),  # load_active_l1 (W)
+    "0x021c": (1.0,  False,      0,  20000),  # load_apparent_l1 (W)
+    "0x0220": (0.1,  False,    -20,    120),  # temp_dcdc_powmr (C)
+    "0x0221": (0.1,  False,    -20,    120),  # temp_inverter_powmr (C)
+    "0x0222": (0.1,  False,    -20,    120),  # temp_transformer_powmr (C)
+    "0x022a": (0.1,  False,     50,    120),  # grid_voltage_l2 (V)
+    "0x022c": (0.1,  False,     50,    120),  # inverter_voltage_l2 (V)
+    "0x0232": (1.0,  False,      0,  20000),  # load_active_l2 (W)
+    "0x0234": (1.0,  False,      0,  20000),  # load_apparent_l2 (W)
+    "0x023d": (1.0,  True,  -20000,  20000),  # grid_l1 (W)
+    "0x023e": (1.0,  True,  -20000,  20000),  # grid_l2 (W)
+    # Growatt single-register (decimal)
+    "1":     (0.1,  False,       0,    600),  # pv3_voltage (V)
+    "2":     (0.1,  False,       0,    600),  # pv4_voltage (V)
+    "7":     (0.1,  False,       0,     25),  # pv3_current (A)
+    "8":     (0.1,  False,       0,     25),  # pv4_current (A)
+    "17":    (0.01, False,      45,     65),  # battery_voltage_growatt (V)
+    "25":    (0.1,  True,      -20,    120),  # temp_inverter_growatt (C)
+    "26":    (0.1,  True,      -20,    120),  # temp_dcdc_growatt (C)
+    "32":    (0.1,  True,      -20,    120),  # temp_buck1_growatt (C)
+    "33":    (0.1,  True,      -20,    120),  # temp_buck2_growatt (C)
+    "83":    (0.1,  False,       0,    300),  # battery_current_growatt_charge (A)
+    "84":    (0.1,  False,       0,    300),  # battery_current_growatt_draw (A)
+    # Growatt combined 32-bit (left << 16 | right)
+    "3-4":   (0.1,  False,       0,   6000),  # pv3_power (W)
+    "5-6":   (0.1,  False,       0,   6000),  # pv4_power (W)
+}
+
+
+def _real_value(raw: int, scale: float, signed: bool) -> float:
+    if signed and raw >= 0x8000:
+        raw -= 0x10000
+    return raw * scale
+
+
+def _real_value_pair(hi: int, lo: int, scale: float, signed: bool) -> float:
+    combined = ((hi & 0xFFFF) << 16) | (lo & 0xFFFF)
+    if signed and combined >= 0x80000000:
+        combined -= 0x100000000
+    return combined * scale
+
+
+def _check_powmr_ranges(raw: Dict[int, int]) -> None:
+    """Raise RuntimeError if any PowMr value in `raw` falls outside its known band."""
+    for key, (scale, signed, lo, hi) in _REAL_RANGES.items():
+        if not key.startswith("0x"):
+            continue
+        addr = int(key, 16)
+        if addr not in raw:
+            continue
+        real = _real_value(raw[addr], scale, signed)
+        if not (lo <= real <= hi):
+            log.error(
+                "PowMr value out of range: %s = %.3f (raw=%d); expected %s..%s",
+                key, real, raw[addr], lo, hi,
+            )
+            raise RuntimeError(
+                f"PowMr value out of range: {key}={real:.3f} (raw={raw[addr]}); expected {lo}..{hi}"
+            )
+
+
+def _check_growatt_ranges(raw: Dict[int, int]) -> None:
+    """Raise RuntimeError if any Growatt value (single or combined) is out of band."""
+    for key, (scale, signed, lo, hi) in _REAL_RANGES.items():
+        if key.startswith("0x"):
+            continue
+        if "-" in key:
+            left, right = key.split("-", 1)
+            li, ri = int(left), int(right)
+            if li not in raw or ri not in raw:
+                continue
+            real = _real_value_pair(raw[li], raw[ri], scale, signed)
+            raw_disp = f"{raw[li]},{raw[ri]}"
+        else:
+            i = int(key)
+            if i not in raw:
+                continue
+            real = _real_value(raw[i], scale, signed)
+            raw_disp = str(raw[i])
+        if not (lo <= real <= hi):
+            log.error(
+                "Growatt value out of range: %s = %.3f (raw=%s); expected %s..%s",
+                key, real, raw_disp, lo, hi,
+            )
+            raise RuntimeError(
+                f"Growatt value out of range: {key}={real:.3f} (raw={raw_disp}); expected {lo}..{hi}"
+            )
 
 
 # ── Modbus client initialisation ──────────────────────────────────────────────
@@ -357,6 +485,7 @@ async def get_all_registers() -> Dict[str, int]:
             powmr_client = connect_modbus()
             try:
                 powmr_raw = _read_holding_blocks(powmr_client, POWMR_HOLDING_BLOCKS, "PowMr")
+                _check_powmr_ranges(powmr_raw)
             finally:
                 try:
                     powmr_client.close()
@@ -367,6 +496,7 @@ async def get_all_registers() -> Dict[str, int]:
         growatt_client = connect_modbus2()
         try:
             growatt_raw = _read_input_blocks(growatt_client, GROWATT_INPUT_BLOCKS, "Growatt")
+            _check_growatt_ranges(growatt_raw)
         finally:
             try:
                 growatt_client.close()
@@ -410,6 +540,7 @@ async def get_limited_registers() -> Dict[str, int]:
         try:
             partial_blocks: Tuple[Tuple[int, int], ...] = ((0x0100, 3), (0x021C, 1), (0x0234, 1))
             raw    = _read_holding_blocks(client, partial_blocks, "PowMr")
+            _check_powmr_ranges(raw)
             subset = _as_hex_dict(raw, POWMR_FAST_ADDRS)
 
             if len(subset) != len(POWMR_FAST_ADDRS):
