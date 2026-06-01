@@ -395,6 +395,15 @@ def connect_modbus() -> modbusClient.ModbusSerialClient:
         modbus.socket.reset_input_buffer()
     except Exception:
         pass
+    # pymodbus's framer keeps an internal _buffer of unparsed bytes that
+    # survives client.close()/connect(); partial bytes from a timed-out prior
+    # transaction persist there and desync subsequent decodes (manifests as
+    # "wrong count" with shape inversions). Kernel-level resets (usbreset,
+    # usb unbind/rebind) cannot clear this — only a fresh Python state does.
+    try:
+        modbus.framer.resetFrame()
+    except Exception:
+        pass
     _powmr_open_count += 1
     log.info(
         "PowMr port open  #%d (closes=%d leak=%d)",
