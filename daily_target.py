@@ -138,7 +138,6 @@ MONTHLY_TARGET_SOC_TABLE: dict[int, list[int]] = {
 # Sunny-day cost of wasted PV >> cost of slightly stale SoC, so the trigger
 # is gated on weather *and* this minimum interval.
 FULL_CHARGE_MIN_INTERVAL_DAYS: int = 30
-FULL_CHARGE_MIN_TARGET_SOC:    int = 90  # Ensure BULK has headroom to reach absorption
 
 
 def _load_last_full_charge() -> date | None:
@@ -404,12 +403,6 @@ def main() -> None:
     full_charge = False
     if weather_code is not None and args.target_soc is None:
         full_charge = should_trigger_full_charge(weather_code, date.today())
-        if full_charge and target_soc < FULL_CHARGE_MIN_TARGET_SOC:
-            log.info(
-                "Full charge: lifting target_soc %d%% → %d%% to give BULK enough headroom",
-                target_soc, FULL_CHARGE_MIN_TARGET_SOC,
-            )
-            target_soc = FULL_CHARGE_MIN_TARGET_SOC
 
     # ── Charging window ────────────────────────────────────────────────────
     if args.charging_hours is not None and args.until_time is not None:
