@@ -56,10 +56,11 @@ FAIL_SAFE_TICKS:       int = 60        # After this many consecutive fetch failu
 # ── Full-charge (LFP balancing / SoC sync) constants ─────────────────────────
 # Triggered by daily_target.py setting "full_charge: true" in targets.json
 # the night before a tier-5 weather day, no more than once per
-# FULL_CHARGE_MIN_INTERVAL_DAYS.  Phases: BULK → BALANCE → SYNC → done.
+# FULL_CHARGE_MIN_INTERVAL_DAYS.  Phases: BULK → SYNC → done. BULK pushes at
+# BULK_MAX_CURRENT and the voltage taper alone shapes the charge curve into
+# absorption; SYNC then briefly nudges past absorption to recalibrate BMS SoC.
 
-BALANCE_ENTRY_VOLTAGE: float = 55.6   # V — leave BULK once voltage reaches this
-BALANCE_ENTRY_CURRENT: float = 15.0   # A — and current has tapered down to this
+BULK_MAX_CURRENT:      float = 120.0  # A — BULK initial cap (voltage taper shapes the curve)
 SYNC_START_TIME:       str   = "06:43"  # Begin SYNC nudge at/after this time
 SYNC_DEADLINE:         str   = "06:58"  # Hard stop (cheap period ends 06:58, sbu_fixed at 06:59)
 SYNC_MAX_CURRENT:      float = 30.0   # A — current cap during SYNC nudge
@@ -99,10 +100,9 @@ class State(Enum):
 
 
 class ChargeMode(Enum):
-    NORMAL  = "NORMAL"   # Default — daily SoC-target-driven charging
-    BULK    = "BULK"     # Full charge phase 1: charge until voltage rises and current tapers
-    BALANCE = "BALANCE"  # Full charge phase 2: hold at high voltage to let cells equalize
-    SYNC    = "SYNC"     # Full charge phase 3: brief nudge to force BMS SoC calibration to 100%
+    NORMAL = "NORMAL"  # Default — daily SoC-target-driven charging
+    BULK   = "BULK"    # Full charge phase 1: push to absorption; voltage taper shapes the curve
+    SYNC   = "SYNC"    # Full charge phase 2: brief nudge to force BMS SoC calibration to 100%
 
 
 # ── Time-period helpers ───────────────────────────────────────────────────────
@@ -499,8 +499,12 @@ def adjust_battery_charge(
         )
         return target
 
-    # State.UTI_CHARGING — apply SoC-taper and voltage-taper limits
-    target = daily_charge_current
+    # State.UTI_CHARGING — same taper for NORMAL and BULK; only the upper
+    # bound differs. NORMAL is bounded by the daily target (0 on sunny days,
+    # which would starve a full charge). BULK starts at the hardware ceiling
+    # so the voltage taper alone shapes the curve into absorption.
+    upper_bound = BULK_MAX_CURRENT if charge_mode == ChargeMode.BULK else daily_charge_current
+    target = upper_bound
 
     SOC_LIMITS = [
         (60, 120), (70, 105), (80,  90), (85, 80),
@@ -534,9 +538,9 @@ def adjust_battery_charge(
 
     final = min(grid_limit, target)
     log.debug(
-        "Charge calc: daily=%.0f A  soc_limit=%.0f A (SoC=%.0f%%)  "
+        "%s charge: cap=%.0f A  soc_limit=%.0f A (SoC=%.0f%%)  "
         "volt_limit=%.0f A (V=%.2f V)  grid_limit=%.0f A  → %.0f A",
-        daily_charge_current, soc_limit_applied, battery_soc,
+        charge_mode.value, upper_bound, soc_limit_applied, battery_soc,
         volt_limit_applied, battery_voltage, grid_limit, final,
     )
     return final
@@ -562,9 +566,8 @@ def main() -> None:
     log.info("  Time periods  : %s",
              "  ".join(f"{p['name']} ({p['start']}–{p['end']})" for p in TIME_PERIODS))
     log.info(
-        "  Full charge   : balance≥%.1fV/≤%.0fA, sync %s–%s, max %.0fA, ceiling %.1fV, timeout %d min",
-        BALANCE_ENTRY_VOLTAGE, BALANCE_ENTRY_CURRENT,
-        SYNC_START_TIME, SYNC_DEADLINE, SYNC_MAX_CURRENT,
+        "  Full charge   : bulk ≤%.0fA, sync %s–%s ≤%.0fA, ceiling %.1fV, timeout %d min",
+        BULK_MAX_CURRENT, SYNC_START_TIME, SYNC_DEADLINE, SYNC_MAX_CURRENT,
         SYNC_VOLTAGE_CEILING, SYNC_TIMEOUT_MINUTES,
     )
     log.info("=" * 60)
@@ -730,7 +733,7 @@ def main() -> None:
 
         # ── Full-charge phase progression ─────────────────────────────
         # Only progresses with fresh data, in cheap period, while flag is set.
-        # NORMAL → BULK → BALANCE → SYNC → done (clears flag, returns to NORMAL).
+        # NORMAL → BULK → SYNC → done (clears flag, returns to NORMAL).
         # Skip while a manual override is active so the user can intervene
         # without the full-charge state machine fighting back.
         if limited_data and full_charge and time_period == "cheap" and override is None:
@@ -745,27 +748,13 @@ def main() -> None:
                     battery_voltage, target_soc,
                 )
 
-            if charge_mode == ChargeMode.BULK:
-                if (battery_voltage >= BALANCE_ENTRY_VOLTAGE
-                        and last_charge_current <= BALANCE_ENTRY_CURRENT):
-                    charge_mode = ChargeMode.BALANCE
-                    log.info(
-                        "Full charge: BULK → BALANCE (V=%.2f V ≥ %.2f, I=%.0f A ≤ %.0f)",
-                        battery_voltage, BALANCE_ENTRY_VOLTAGE,
-                        last_charge_current, BALANCE_ENTRY_CURRENT,
-                    )
-
-            if charge_mode in (ChargeMode.BULK, ChargeMode.BALANCE):
-                # Time-based BALANCE → SYNC transition: starts at SYNC_START_TIME.
-                # Also catches BULK that didn't reach BALANCE thresholds — still try SYNC nudge.
-                if now.time() >= sync_start and now.time() <= sync_deadline:
-                    prev_mode = charge_mode
-                    charge_mode = ChargeMode.SYNC
-                    sync_start_time = now
-                    log.info(
-                        "Full charge: %s → SYNC (time=%s, V=%.2f V)",
-                        prev_mode.value, now.strftime("%H:%M"), battery_voltage,
-                    )
+            if charge_mode == ChargeMode.BULK and sync_start <= now.time() <= sync_deadline:
+                charge_mode = ChargeMode.SYNC
+                sync_start_time = now
+                log.info(
+                    "Full charge: BULK → SYNC (time=%s, V=%.2f V)",
+                    now.strftime("%H:%M"), battery_voltage,
+                )
 
             if charge_mode == ChargeMode.SYNC:
                 completion_reason: str | None = None

@@ -94,11 +94,11 @@ def fetch_tomorrow_weather_code() -> int:
 
 
 WEATHER_TIER_RULES: list[tuple] = [
-    (lambda wc: wc == 100,                   1),  # Clear
-    (lambda wc: 101 <= wc < 200,             2),  # Mostly sunny
-    (lambda wc: wc in {200, 201, 210, 211},  3),  # Partly cloudy
-    (lambda wc: 200 <= wc < 300,             4),  # Cloudy
-    (lambda wc: wc in {300, 301, 311, 313},  5),  # Rain / severe
+    (lambda wc: wc == 100,                          1),  # Clear
+    (lambda wc: 101 <= wc < 200,                    2),  # Mostly sunny
+    (lambda wc: wc in {200, 201, 210, 211},         3),  # Partly cloudy
+    (lambda wc: 200 <= wc < 300 or wc == 302,       4),  # Cloudy (302 = rain intermittently stopping)
+    (lambda wc: 300 <= wc < 400,                    5),  # Rain / severe
 ]
 
 _TIER_NAMES = {1: "clear", 2: "mostly sunny", 3: "partly cloudy", 4: "cloudy", 5: "rain/severe"}
@@ -307,6 +307,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print results without writing to targets.json.",
     )
+    parser.add_argument(
+        "--print-weather",
+        action="store_true",
+        help="Fetch tomorrow's JMA weather code, print tier + full-charge "
+             "trigger decision, then exit (no inverter read, no file write).",
+    )
     return parser.parse_args()
 
 
@@ -324,6 +330,20 @@ def main() -> None:
     log.info("  API base      : %s", _API_BASE)
     log.info("  Dry run       : %s", args.dry_run)
     log.info("=" * 60)
+
+    # ── Print-weather: weather check only, no inverter or file I/O ────────
+    if args.print_weather:
+        wc = fetch_tomorrow_weather_code()
+        tier = determine_weather_tier(wc)
+        last = _load_last_full_charge()
+        triggered = should_trigger_full_charge(wc, date.today())
+        log.info(
+            "Weather check: code=%d tier=%d (%s)  last_full_charge=%s  "
+            "would_trigger=%s",
+            wc, tier, _TIER_NAMES.get(tier, "unknown"),
+            last.isoformat() if last else "never", triggered,
+        )
+        return
 
     # ── Skip-tonight check ────────────────────────────────────────────────
     # The targets form lets the user pre-load tonight's plan in the evening
