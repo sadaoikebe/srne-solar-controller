@@ -356,31 +356,8 @@ _powmr_lock = asyncio.Lock()
 # Docker's healthcheck can then poll forever without loading the bus.
 _ready: bool = False
 
-# Diagnostic counters — remove once the reliability issue is resolved.
-# If opens accelerate without closes keeping pace (leak>0 growing), we have
-# an FD/port leak. If opens/closes balance but failures still rise with the
-# open counter, the regression is downstream of the serial open path.
-_powmr_open_count: int = 0
-_powmr_close_count: int = 0
-
-if modbus is not None:
-    _orig_modbus_close = modbus.close
-
-    def _counted_close():  # type: ignore[no-redef]
-        global _powmr_close_count
-        _powmr_close_count += 1
-        log.info(
-            "PowMr port close #%d (opens=%d leak=%d)",
-            _powmr_close_count, _powmr_open_count,
-            _powmr_open_count - _powmr_close_count,
-        )
-        return _orig_modbus_close()
-
-    modbus.close = _counted_close  # type: ignore[method-assign]
-
 
 def connect_modbus() -> modbusClient.ModbusSerialClient:
-    global _powmr_open_count
     if modbus is None:
         raise HTTPException(status_code=500, detail="PowMr Modbus device not found at startup")
     if not modbus.connect():
@@ -404,12 +381,6 @@ def connect_modbus() -> modbusClient.ModbusSerialClient:
         modbus.framer.resetFrame()
     except Exception:
         pass
-    _powmr_open_count += 1
-    log.info(
-        "PowMr port open  #%d (closes=%d leak=%d)",
-        _powmr_open_count, _powmr_close_count,
-        _powmr_open_count - _powmr_close_count,
-    )
     return modbus
 
 
