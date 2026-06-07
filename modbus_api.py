@@ -19,7 +19,7 @@ import json
 import os
 import sys
 import hmac
-from contextlib import nullcontext
+from contextlib import asynccontextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from enum import IntEnum
 from pathlib import Path
@@ -117,25 +117,16 @@ POWMR_FAST_ADDRS: Tuple[int, ...] = (0x0100, 0x0101, 0x0102, 0x021C, 0x0234)
 # (modbus_raw measurement) so unknowns stay recoverable for later analysis.
 GROWATT_RAW_RANGE: Tuple[int, ...] = tuple(range(0, 96))
 
-# ── FastAPI setup ─────────────────────────────────────────────────────────────
-
-app = FastAPI(
-    title="Modbus Register API",
-    description="Reads/writes inverter Modbus registers on behalf of other services.",
-)
-templates = Jinja2Templates(directory="/app")
-security  = HTTPBasic()
-
 # ── Modbus helpers ────────────────────────────────────────────────────────────
 
 
-def _read_holding_blocks(
+async def _read_holding_blocks(
     client, blocks: Iterable[Tuple[int, int]], label: str = "device"
 ) -> Dict[int, int]:
     out: Dict[int, int] = {}
     for start, count in blocks:
         log.debug("%s: reading holding block 0x%04X / count=%d", label, start, count)
-        rr = client.read_holding_registers(address=start, count=count)
+        rr = await client.read_holding_registers(address=start, count=count, slave=1)
         if hasattr(rr, "isError") and rr.isError():
             log.error("%s: holding block 0x%04X/%d failed: %s", label, start, count, rr)
             raise RuntimeError(f"Holding read failed @0x{start:04X}/n={count}: {rr}")
@@ -155,13 +146,13 @@ def _read_holding_blocks(
     return out
 
 
-def _read_input_blocks(
+async def _read_input_blocks(
     client, blocks: Iterable[Tuple[int, int]], label: str = "device"
 ) -> Dict[int, int]:
     out: Dict[int, int] = {}
     for start, count in blocks:
         log.debug("%s: reading input block %d / count=%d", label, start, count)
-        rr = client.read_input_registers(address=start, count=count)
+        rr = await client.read_input_registers(address=start, count=count, slave=1)
         if hasattr(rr, "isError") and rr.isError():
             log.error("%s: input block %d/%d failed: %s", label, start, count, rr)
             raise RuntimeError(f"Input read failed @{start}/n={count}: {rr}")
@@ -316,7 +307,7 @@ def _check_growatt_ranges(raw: Dict[int, int]) -> None:
 
 def get_modbus_client(
     vid: int, pid: int, label: str
-) -> modbusClient.ModbusSerialClient | None:
+) -> modbusClient.AsyncModbusSerialClient | None:
     port = next(
         (p.device for p in serial.tools.list_ports.comports() if p.vid == vid and p.pid == pid),
         None,
@@ -329,17 +320,18 @@ def get_modbus_client(
         )
         return None
     log.info("%s device found: %s  (VID=0x%04X  PID=0x%04X)", label, port, vid, pid)
-    return modbusClient.ModbusSerialClient(port=port, baudrate=9600, timeout=1)
+    # Constructor is sync-safe — does no I/O. `.connect()` is awaited in the
+    # FastAPI lifespan handler so we never call it from import context.
+    return modbusClient.AsyncModbusSerialClient(port=port, baudrate=9600, timeout=1)
 
 
-# Module-level clients — found once at startup.
-# connect() / close() are called per-request to keep the shared bus clean.
+# Module-level clients — constructed once at import.
 #
-# Concurrent access to the PowMr serial bus is serialised by `_powmr_lock`
-# below: every endpoint that touches `modbus` acquires it for the full
-# connect → transact → close sequence. This prevents two coroutines from
-# racing inside the shared ModbusSerialClient when polls overlap (e.g.
-# db_writer's 30 s /registers vs battery_controller's 5 s /limited_registers).
+# Concurrent access to the PowMr bus is serialised by `_powmr_lock`: RTU has
+# no transaction-ID multiplexing, so two simultaneous `await read_*` calls
+# on the same client would collide on the wire. We hold the lock for the
+# entire request so the lock+await pattern matches the bus's
+# single-transaction-at-a-time reality.
 #
 # Growatt (`modbus2`) is intentionally NOT locked — its access pattern has
 # never produced the race in practice, so we keep it untouched.
@@ -357,40 +349,65 @@ _powmr_lock = asyncio.Lock()
 _ready: bool = False
 
 
-def connect_modbus() -> modbusClient.ModbusSerialClient:
+def _powmr() -> modbusClient.AsyncModbusSerialClient:
+    """Return the PowMr client or raise HTTP 500 if it wasn't found at startup."""
     if modbus is None:
         raise HTTPException(status_code=500, detail="PowMr Modbus device not found at startup")
-    if not modbus.connect():
-        log.error("Failed to open serial connection to PowMr")
-        raise HTTPException(status_code=500, detail="Failed to connect to PowMr Modbus device")
-    # Drain stale bytes from the kernel tty input buffer before transacting.
-    # Without this, a response that arrives after a previous timeout sits in
-    # the buffer and gets decoded as the reply to the next request, producing
-    # framer desync (e.g. a WriteRegisterResponse returned from a read,
-    # truncated register lists) that persists across close/reopen.
-    try:
-        modbus.socket.reset_input_buffer()
-    except Exception:
-        pass
-    # pymodbus's framer keeps an internal _buffer of unparsed bytes that
-    # survives client.close()/connect(); partial bytes from a timed-out prior
-    # transaction persist there and desync subsequent decodes (manifests as
-    # "wrong count" with shape inversions). Kernel-level resets (usbreset,
-    # usb unbind/rebind) cannot clear this — only a fresh Python state does.
-    try:
-        modbus.framer.resetFrame()
-    except Exception:
-        pass
     return modbus
 
 
-def connect_modbus2() -> modbusClient.ModbusSerialClient:
+def _growatt() -> modbusClient.AsyncModbusSerialClient:
+    """Return the Growatt client or raise HTTP 500 if it wasn't found at startup."""
     if modbus2 is None:
         raise HTTPException(status_code=500, detail="Growatt Modbus device not found at startup")
-    if not modbus2.connect():
-        log.error("Failed to open serial connection to Growatt")
-        raise HTTPException(status_code=500, detail="Failed to connect to Growatt Modbus device")
     return modbus2
+
+
+# ── FastAPI setup ─────────────────────────────────────────────────────────────
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Connect the long-lived Modbus clients at startup; close them at shutdown.
+
+    AsyncModbusSerialClient.connect() is a coroutine — can't run at module
+    import time. Initial-connect failure is non-fatal: the async client keeps
+    trying to reconnect in the background (exponential backoff via
+    reconnect_delay), and any persistent failure surfaces to callers as a
+    failed read.
+    """
+    if modbus is not None:
+        try:
+            ok = await modbus.connect()
+            log.info("PowMr: initial connect %s", "OK" if ok else "FAILED (will keep retrying)")
+        except Exception as e:
+            log.error("PowMr: initial connect raised %s (will keep retrying)", e)
+    if modbus2 is not None:
+        try:
+            ok = await modbus2.connect()
+            log.info("Growatt: initial connect %s", "OK" if ok else "FAILED (will keep retrying)")
+        except Exception as e:
+            log.error("Growatt: initial connect raised %s (will keep retrying)", e)
+    yield
+    if modbus is not None:
+        try:
+            modbus.close()
+        except Exception as e:
+            log.debug("PowMr close on shutdown raised %s (ignored)", e)
+    if modbus2 is not None:
+        try:
+            modbus2.close()
+        except Exception as e:
+            log.debug("Growatt close on shutdown raised %s (ignored)", e)
+
+
+app = FastAPI(
+    title="Modbus Register API",
+    description="Reads/writes inverter Modbus registers on behalf of other services.",
+    lifespan=lifespan,
+)
+templates = Jinja2Templates(directory="/app")
+security  = HTTPBasic()
 
 
 # ── Authentication ────────────────────────────────────────────────────────────
@@ -431,9 +448,9 @@ async def health():
         return {"status": "ready"}
 
     async with _powmr_lock:
-        client = connect_modbus()
+        client = _powmr()
         try:
-            rr = client.read_holding_registers(address=0x0100, count=1)
+            rr = await client.read_holding_registers(address=0x0100, count=1, slave=1)
             if hasattr(rr, "isError") and rr.isError():
                 raise HTTPException(status_code=503, detail=f"Not ready: {rr}")
             if not getattr(rr, "registers", None):
@@ -446,11 +463,6 @@ async def health():
         except Exception as e:
             log.warning("/health: probe failed (will retry): %s", e)
             raise HTTPException(status_code=503, detail=f"Not ready: {e}")
-        finally:
-            try:
-                client.close()
-            except Exception:
-                pass
 
 
 @app.get("/registers", response_model=Dict[str, int])
@@ -460,28 +472,14 @@ async def get_all_registers() -> Dict[str, int]:
               len(POWMR_HOLDING_BLOCKS), len(GROWATT_INPUT_BLOCKS))
     try:
         # PowMr is shared with /limited_registers and the write endpoints —
-        # serialise the connect → read → close sequence under _powmr_lock.
+        # serialise under _powmr_lock.
         async with _powmr_lock:
-            powmr_client = connect_modbus()
-            try:
-                powmr_raw = _read_holding_blocks(powmr_client, POWMR_HOLDING_BLOCKS, "PowMr")
-                _check_powmr_ranges(powmr_raw)
-            finally:
-                try:
-                    powmr_client.close()
-                except Exception:
-                    pass
+            powmr_raw = await _read_holding_blocks(_powmr(), POWMR_HOLDING_BLOCKS, "PowMr")
+            _check_powmr_ranges(powmr_raw)
 
         # Growatt: unchanged, no lock.
-        growatt_client = connect_modbus2()
-        try:
-            growatt_raw = _read_input_blocks(growatt_client, GROWATT_INPUT_BLOCKS, "Growatt")
-            _check_growatt_ranges(growatt_raw)
-        finally:
-            try:
-                growatt_client.close()
-            except Exception:
-                pass
+        growatt_raw = await _read_input_blocks(_growatt(), GROWATT_INPUT_BLOCKS, "Growatt")
+        _check_growatt_ranges(growatt_raw)
 
         powmr_part   = _as_hex_dict(powmr_raw,   POWMR_REQUIRED)
         growatt_part = _as_dec_dict(growatt_raw, GROWATT_RAW_RANGE)
@@ -516,10 +514,9 @@ async def get_limited_registers() -> Dict[str, int]:
       0x0234 = load apparent power L2 (W)
     """
     async with _powmr_lock:
-        client = connect_modbus()
         try:
             partial_blocks: Tuple[Tuple[int, int], ...] = ((0x0100, 3), (0x021C, 1), (0x0234, 1))
-            raw    = _read_holding_blocks(client, partial_blocks, "PowMr")
+            raw    = await _read_holding_blocks(_powmr(), partial_blocks, "PowMr")
             _check_powmr_ranges(raw)
             subset = _as_hex_dict(raw, POWMR_FAST_ADDRS)
 
@@ -540,11 +537,6 @@ async def get_limited_registers() -> Dict[str, int]:
         except Exception as e:
             log.error("/limited_registers: unexpected error: %s", e)
             raise HTTPException(status_code=500, detail=f"PowMr limited read error: {e}")
-        finally:
-            try:
-                client.close()
-            except Exception:
-                pass
 
 
 @app.get("/raw_read")
@@ -572,16 +564,16 @@ async def raw_read(addr: str, count: int = 1, device: str = "powmr"):
     guard = _powmr_lock if device == "powmr" else nullcontext()
     async with guard:
         if device == "powmr":
-            client = connect_modbus()
+            client = _powmr()
             reader = client.read_holding_registers
             label  = "PowMr"
         else:  # growatt — validated above
-            client = connect_modbus2()
+            client = _growatt()
             reader = client.read_input_registers
             label  = "Growatt"
 
         try:
-            rr = reader(address=address, count=count)
+            rr = await reader(address=address, count=count, slave=1)
             if hasattr(rr, "isError") and rr.isError():
                 log.error("/raw_read: %s read failed at 0x%04X/%d: %s", label, address, count, rr)
                 raise HTTPException(status_code=502, detail=f"{label} read failed: {rr}")
@@ -601,11 +593,6 @@ async def raw_read(addr: str, count: int = 1, device: str = "powmr"):
         except Exception as e:
             log.error("/raw_read: unexpected error: %s", e)
             raise HTTPException(status_code=500, detail=f"Raw read error: {e}")
-        finally:
-            try:
-                client.close()
-            except Exception:
-                pass
 
 
 # ── Write endpoints ───────────────────────────────────────────────────────────
@@ -618,7 +605,7 @@ async def set_charge_current(
 ):
     """Set the grid charge current (A).  Body: {"value": <float>}."""
     async with _powmr_lock:
-        modbus_client = connect_modbus()
+        client = _powmr()
         try:
             body  = await request.json()
             value = body.get("value")
@@ -629,7 +616,7 @@ async def set_charge_current(
 
             regval = int(value * 10)
             log.debug("/set_charge_current: writing 0xE205 = %d (%.1f A)", regval, value)
-            response = modbus_client.write_register(0xE205, regval)
+            response = await client.write_register(0xE205, regval, slave=1)
             if response.isError():
                 log.error("/set_charge_current: register write failed: %s", response)
                 raise HTTPException(status_code=500, detail="Error writing charge-current register")
@@ -641,8 +628,6 @@ async def set_charge_current(
         except Exception as e:
             log.error("/set_charge_current: unexpected error: %s", e)
             raise HTTPException(status_code=500, detail=f"Error: {e}")
-        finally:
-            modbus_client.close()
 
 
 @app.post("/set_output_priority")
@@ -652,7 +637,7 @@ async def set_output_priority(
 ):
     """Set the output priority.  Body: {"value": 0|1|2}."""
     async with _powmr_lock:
-        modbus_client = connect_modbus()
+        client = _powmr()
         try:
             body  = await request.json()
             value = body.get("value")
@@ -664,7 +649,7 @@ async def set_output_priority(
                 )
 
             log.debug("/set_output_priority: writing 0xE204 = %d (%s)", value, OutputPriority(value).name)
-            response = modbus_client.write_register(0xE204, int(value))
+            response = await client.write_register(0xE204, int(value), slave=1)
             if response.isError():
                 log.error("/set_output_priority: register write failed: %s", response)
                 raise HTTPException(status_code=500, detail="Failed to set Output Priority")
@@ -677,17 +662,15 @@ async def set_output_priority(
         except Exception as e:
             log.error("/set_output_priority: unexpected error: %s", e)
             raise HTTPException(status_code=500, detail=f"Error: {e}")
-        finally:
-            modbus_client.close()
 
 
 @app.get("/get_output_priority")
 async def get_output_priority():
     """Read the current output priority."""
     async with _powmr_lock:
-        modbus_client = connect_modbus()
+        client = _powmr()
         try:
-            response = modbus_client.read_holding_registers(address=0xE204, count=1)
+            response = await client.read_holding_registers(address=0xE204, count=1, slave=1)
             if response.isError():
                 log.error("/get_output_priority: register read failed: %s", response)
                 raise HTTPException(status_code=500, detail="Failed to read Output Priority")
@@ -702,8 +685,6 @@ async def get_output_priority():
         except Exception as e:
             log.error("/get_output_priority: unexpected error: %s", e)
             raise HTTPException(status_code=500, detail=f"Error: {e}")
-        finally:
-            modbus_client.close()
 
 
 @app.post("/set_charging_priority")
@@ -713,7 +694,7 @@ async def set_charging_priority(
 ):
     """Set the charging priority.  Body: {"value": 0|1|2|3}."""
     async with _powmr_lock:
-        modbus_client = connect_modbus()
+        client = _powmr()
         try:
             body  = await request.json()
             value = body.get("value")
@@ -725,7 +706,7 @@ async def set_charging_priority(
                 )
 
             log.debug("/set_charging_priority: writing 0xE20F = %d (%s)", value, ChargingPriority(value).name)
-            response = modbus_client.write_register(0xE20F, int(value))
+            response = await client.write_register(0xE20F, int(value), slave=1)
             if response.isError():
                 log.error("/set_charging_priority: register write failed: %s", response)
                 raise HTTPException(status_code=500, detail="Failed to set Charging Priority")
@@ -738,17 +719,15 @@ async def set_charging_priority(
         except Exception as e:
             log.error("/set_charging_priority: unexpected error: %s", e)
             raise HTTPException(status_code=500, detail=f"Error: {e}")
-        finally:
-            modbus_client.close()
 
 
 @app.get("/get_charging_priority")
 async def get_charging_priority():
     """Read the current charging priority."""
     async with _powmr_lock:
-        modbus_client = connect_modbus()
+        client = _powmr()
         try:
-            response = modbus_client.read_holding_registers(address=0xE20F, count=1)
+            response = await client.read_holding_registers(address=0xE20F, count=1, slave=1)
             if response.isError():
                 log.error("/get_charging_priority: register read failed: %s", response)
                 raise HTTPException(status_code=500, detail="Failed to read Charging Priority")
@@ -765,8 +744,6 @@ async def get_charging_priority():
         except Exception as e:
             log.error("/get_charging_priority: unexpected error: %s", e)
             raise HTTPException(status_code=500, detail=f"Error: {e}")
-        finally:
-            modbus_client.close()
 
 
 # ── Targets form ──────────────────────────────────────────────────────────────
