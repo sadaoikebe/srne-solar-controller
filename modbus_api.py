@@ -322,7 +322,16 @@ def get_modbus_client(
     log.info("%s device found: %s  (VID=0x%04X  PID=0x%04X)", label, port, vid, pid)
     # Constructor is sync-safe — does no I/O. `.connect()` is awaited in the
     # FastAPI lifespan handler so we never call it from import context.
-    return modbusClient.AsyncModbusSerialClient(port=port, baudrate=9600, timeout=1)
+    #
+    # retries=0 because the async client defaults to 3 silent per-transaction
+    # retries; with timeout=1 that turns one stuck block into a 4 s lock-up,
+    # which cascades into other endpoints' HTTP timeouts. Fail-fast is cheaper
+    # than retry-for-resilience — callers already handle a failed read
+    # (battery_controller holds state, db_writer skips a tick), and transport-
+    # level recovery is handled by the client's auto-reconnect.
+    return modbusClient.AsyncModbusSerialClient(
+        port=port, baudrate=9600, timeout=1, retries=0,
+    )
 
 
 # Module-level clients — constructed once at import.
