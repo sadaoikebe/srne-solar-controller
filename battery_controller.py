@@ -48,6 +48,10 @@ _SOC_DELTA_PER_A_PER_TICK: float = (
 GRID_MAX_POWER_W: float    = 9000.0    # Maximum grid power budget (W)
 HYSTERESIS_SOC:   float    = 2.0       # SoC hysteresis band (%)
 CUTOFF_SOC:       float    = 9.0       # Emergency SoC floor (%)
+SBU_RETURN_MIN_SOC: float  = 13.0      # Minimum SoC (%) to (re)enter SBU during sbu_fixed.
+                                       # Set above CUTOFF_SOC so a rainy-day rebound to
+                                       # V>51.6 V on a barely-recovered battery doesn't
+                                       # flap back into SBU only to trip out again.
 SBU_TO_UTI_COOLDOWN_S: int = 30 * 60   # Minimum seconds between SBU→UTI switches
 FAIL_SAFE_TICKS:       int = 60        # After this many consecutive fetch failures
                                        # (60 × 5 s = 5 min), force SBU → UTI_STOPPED
@@ -355,7 +359,7 @@ def determine_next_state(
 
     if time_period == "sbu_fixed":
         if current_state == State.UTI_CHARGING:
-            if battery_voltage > 51.6 and estimated_soc > CUTOFF_SOC:
+            if battery_voltage > 51.6 and estimated_soc > SBU_RETURN_MIN_SOC:
                 if cooldown_elapsed:
                     next_state = State.SBU
                 else:
@@ -367,7 +371,7 @@ def determine_next_state(
                 next_state = State.UTI_STOPPED
 
         elif current_state == State.UTI_STOPPED:
-            if battery_voltage > 51.6 and estimated_soc > CUTOFF_SOC:
+            if battery_voltage > 51.6 and estimated_soc > SBU_RETURN_MIN_SOC:
                 if cooldown_elapsed:
                     next_state = State.SBU
                 else:
