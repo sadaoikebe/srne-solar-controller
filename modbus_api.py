@@ -363,24 +363,6 @@ def connect_modbus() -> modbusClient.ModbusSerialClient:
     if not modbus.connect():
         log.error("Failed to open serial connection to PowMr")
         raise HTTPException(status_code=500, detail="Failed to connect to PowMr Modbus device")
-    # Drain stale bytes from the kernel tty input buffer before transacting.
-    # Without this, a response that arrives after a previous timeout sits in
-    # the buffer and gets decoded as the reply to the next request, producing
-    # framer desync (e.g. a WriteRegisterResponse returned from a read,
-    # truncated register lists) that persists across close/reopen.
-    try:
-        modbus.socket.reset_input_buffer()
-    except Exception:
-        pass
-    # pymodbus's framer keeps an internal _buffer of unparsed bytes that
-    # survives client.close()/connect(); partial bytes from a timed-out prior
-    # transaction persist there and desync subsequent decodes (manifests as
-    # "wrong count" with shape inversions). Kernel-level resets (usbreset,
-    # usb unbind/rebind) cannot clear this — only a fresh Python state does.
-    try:
-        modbus.framer.resetFrame()
-    except Exception:
-        pass
     return modbus
 
 
