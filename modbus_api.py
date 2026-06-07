@@ -393,6 +393,76 @@ def connect_modbus2() -> modbusClient.ModbusSerialClient:
     return modbus2
 
 
+# ── On-failure PowMr client rebuild ───────────────────────────────────────────
+#
+# We've observed a desync that survives close()/connect()/resetFrame() and
+# only recovers on `docker restart`. The difference between a docker restart
+# and an in-process reopen: the former drops the ModbusSerialClient *object*
+# entirely (along with its framer state, transaction manager, and the
+# underlying pyserial.Serial). This rebuild mimics that at the Python-object
+# level — no docker restart needed.
+#
+# Telemetry counter — if this climbs steadily in steady state, the rebuild
+# is masking a deeper bug rather than papering over transient desync.
+_powmr_rebuild_count: int = 0
+
+
+def _rebuild_powmr_client() -> None:
+    """Discard the current PowMr ModbusSerialClient and build a fresh one.
+
+    Caller must hold `_powmr_lock`.
+    """
+    global modbus, _powmr_rebuild_count
+    _powmr_rebuild_count += 1
+    log.warning("PowMr: rebuilding ModbusSerialClient (#%d)", _powmr_rebuild_count)
+    if modbus is not None:
+        try:
+            modbus.close()
+        except Exception as e:
+            log.debug("PowMr: close() during rebuild raised %s (ignored)", e)
+    modbus = get_modbus_client(vid=6790, pid=29987, label="PowMr")
+    if modbus is None:
+        log.error("PowMr: device not visible during rebuild — next read will fail")
+
+
+def _read_powmr_holding_with_recovery(
+    blocks: Iterable[Tuple[int, int]],
+    label: str,
+    validate=None,
+) -> Dict[int, int]:
+    """Read PowMr holding blocks; on failure, rebuild the client and retry once.
+
+    `validate(raw)` runs inside the protected region so out-of-range values —
+    the smoking-gun symptom of framer desync smuggling garbage through a
+    structurally-valid response — also trigger the rebuild path. Caller must
+    hold `_powmr_lock`.
+    """
+    def _attempt() -> Dict[int, int]:
+        client = connect_modbus()
+        try:
+            raw = _read_holding_blocks(client, blocks, label)
+            if validate is not None:
+                validate(raw)
+            return raw
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+    try:
+        return _attempt()
+    except HTTPException:
+        # connect_modbus() raised: device not found or .connect() returned False.
+        # Rebuild won't fix "device gone" and won't help with transient bus
+        # contention either — propagate as-is.
+        raise
+    except Exception as e:
+        log.warning("PowMr read failed (%s) — rebuilding client and retrying once", e)
+        _rebuild_powmr_client()
+        return _attempt()
+
+
 # ── Authentication ────────────────────────────────────────────────────────────
 
 
@@ -461,16 +531,11 @@ async def get_all_registers() -> Dict[str, int]:
     try:
         # PowMr is shared with /limited_registers and the write endpoints —
         # serialise the connect → read → close sequence under _powmr_lock.
+        # _read_powmr_holding_with_recovery rebuilds the client on failure.
         async with _powmr_lock:
-            powmr_client = connect_modbus()
-            try:
-                powmr_raw = _read_holding_blocks(powmr_client, POWMR_HOLDING_BLOCKS, "PowMr")
-                _check_powmr_ranges(powmr_raw)
-            finally:
-                try:
-                    powmr_client.close()
-                except Exception:
-                    pass
+            powmr_raw = _read_powmr_holding_with_recovery(
+                POWMR_HOLDING_BLOCKS, "PowMr", validate=_check_powmr_ranges,
+            )
 
         # Growatt: unchanged, no lock.
         growatt_client = connect_modbus2()
@@ -516,11 +581,11 @@ async def get_limited_registers() -> Dict[str, int]:
       0x0234 = load apparent power L2 (W)
     """
     async with _powmr_lock:
-        client = connect_modbus()
         try:
             partial_blocks: Tuple[Tuple[int, int], ...] = ((0x0100, 3), (0x021C, 1), (0x0234, 1))
-            raw    = _read_holding_blocks(client, partial_blocks, "PowMr")
-            _check_powmr_ranges(raw)
+            raw = _read_powmr_holding_with_recovery(
+                partial_blocks, "PowMr", validate=_check_powmr_ranges,
+            )
             subset = _as_hex_dict(raw, POWMR_FAST_ADDRS)
 
             if len(subset) != len(POWMR_FAST_ADDRS):
@@ -540,11 +605,6 @@ async def get_limited_registers() -> Dict[str, int]:
         except Exception as e:
             log.error("/limited_registers: unexpected error: %s", e)
             raise HTTPException(status_code=500, detail=f"PowMr limited read error: {e}")
-        finally:
-            try:
-                client.close()
-            except Exception:
-                pass
 
 
 @app.get("/raw_read")
