@@ -1,0 +1,15 @@
+# JK-BMS bank configuration (read-only monitoring).
+# Used by jkbms_client CLI and (later) jkbms_api.
+
+poll_interval_s: 30
+
+# BLE query timeout budget per bank (connect + frames).
+read_timeout_s: 20
+
+banks:
+  a:
+    serial: "40904495693"
+    mac: "98:DA:20:09:98:80"
+  b:
+    serial: "41101490573"
+    mac: "98:DA:20:06:85:65"

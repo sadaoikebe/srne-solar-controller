@@ -1,5 +1,9 @@
 .env
 .vscode/
 venv/
+.venv/
 .claude/
 compose.override.yaml
+__pycache__/
+*.pyc
+.pytest_cache/

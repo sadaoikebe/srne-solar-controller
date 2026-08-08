@@ -1,0 +1,5 @@
+# Extra deps for JK-BMS BLE monitoring (host / jkbms_api).
+# Install into a venv:  pip install -r requirements-jkbms.txt
+bleak>=0.22,<4
+# PyYAML already in requirements.txt; listed for standalone host use.
+pyyaml~=6.0
