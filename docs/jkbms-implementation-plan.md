@@ -2,7 +2,7 @@
 
 **Branch:** `feature/jkbms-api`  
 **Worktree:** `/home/shobon/srne-solar-controller-jkbms` (isolated from production `~/srne-solar-controller`)  
-**Status:** Step 1 (BLE client) done — host CLI + unit tests verified
+**Status:** Step 2 (jkbms_api + background cache) done — host HTTP verified
 
 ## Locked decisions
 
@@ -63,24 +63,22 @@ Names: `soc`, `soh`, `voltage`, `current`, `power`, `remain_ah`, `nominal_ah`, `
 
 **Exit criteria:** CLI one-shot reads A and B successfully on this Pi. **Met.**
 
-### Phase 2 — `jkbms_api` service (cache + HTTP only)
+### Phase 2 — `jkbms_api` service (cache + HTTP only) ✅
 
 **Goal:** Background poller + FastAPI; no Influx yet.
 
 **Deliverables:**
 
-- `jkbms_api.py` (FastAPI + asyncio background task)
-- Config: `jkbms.yaml` (or env) with banks, poll interval (default 30 s)
-- Endpoints:
-  - `GET /health` — process up; optionally “at least one bank ever ok”
-  - `GET /bms` — full snapshot both banks
-  - `GET /bms/{bank}` — single bank
-- Response includes `ok`, `age_s`, `error`, all phase-1 fields + `cells[]`
-- Partial failure: A ok / B fail still returns 200 with per-bank status
-- Logging via existing `log_config.py` pattern
-- **No write/control routes**
+- [x] `jkbms_api.py` — FastAPI + asyncio background poller + in-memory cache
+- [x] Config via `jkbms.yaml` / `JKBMS_CONFIG` (interval 30 s, banks a/b)
+- [x] `GET /health`, `GET /bms`, `GET /bms/{bank}`
+- [x] Snapshot fields: `ok`, `age_s`, `sampled_at`, `error`, phase-1 metrics + `cells[]`
+- [x] Partial failure still HTTP 200 on `/bms` (per-bank `ok`)
+- [x] No write/control routes
+- [x] Cache unit tests in `tests/test_jkbms_api.py`
+- [x] Host verified: poll 2/2 OK, cache ages without re-BLE
 
-**Exit criteria:** `curl localhost:…/bms` shows live data; values match app within noise.
+**Exit criteria:** `curl localhost:…/bms` shows live data. **Met** (port 5005).
 
 ### Phase 3 — Docker packaging for parallel run
 
