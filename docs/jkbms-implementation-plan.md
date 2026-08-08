@@ -2,7 +2,7 @@
 
 **Branch:** `feature/jkbms-api`  
 **Worktree:** `/home/shobon/srne-solar-controller-jkbms` (isolated from production `~/srne-solar-controller`)  
-**Status:** Step 4 (Influx writer) done — measurement `jkbms` verified in production bucket
+**Status:** Step 5 (Grafana dashboard) done — additive `5_jkbms.json` on live Grafana
 
 ## Locked decisions
 
