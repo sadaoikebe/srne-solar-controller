@@ -80,22 +80,27 @@ Names: `soc`, `soh`, `voltage`, `current`, `power`, `remain_ah`, `nominal_ah`, `
 
 **Exit criteria:** `curl localhost:…/bms` shows live data. **Met** (port 5005).
 
-### Phase 3 — Docker packaging for parallel run
+### Phase 3 — Docker packaging for parallel run ✅
 
 **Goal:** Run `jkbms_api` without touching production compose services.
 
 **Deliverables:**
 
-- `Dockerfile.jkbms` **or** extend Dockerfile carefully (prefer separate image/target first)
-- `compose.jkbms.yaml` (standalone overlay / project name) that:
-  - Builds/runs only `jkbms_api`
-  - Does **not** redefine `modbus_api`, `db_writer`, `battery_controller`
-  - Uses host Bluetooth access (likely `network_mode: host` or D-Bus mounts + caps — verify on this Pi)
-  - Publishes HTTP port (e.g. `5005`)
-- `requirements-jkbms.txt` or extra deps: `bleak`, reuse fastapi/uvicorn
-- Document: phone app must not hold BLE during Pi polls
+- [x] `Dockerfile.jkbms` — lean image (bleak + fastapi only)
+- [x] `compose.jkbms.yaml` — project `jkbms`, service `jkbms_api` only
+  - `network_mode: host` + `/var/run/dbus` for BlueZ
+  - port **5005** (production modbus stays **5004**)
+  - healthcheck: status ok|degraded
+- [x] `docs/jkbms-docker.md` — start/stop/curl notes
+- [x] Verified: container healthy, 2/2 banks, production `modbus_api` still healthy
 
-**Exit criteria:** Container serves `/bms`; production stack still healthy on its own compose project.
+**Exit criteria:** Container serves `/bms`; production stack still healthy. **Met.**
+
+```bash
+docker compose -f compose.jkbms.yaml -p jkbms up -d --build
+docker compose -f compose.jkbms.yaml -p jkbms down   # leaves production alone
+```
+
 
 ### Phase 4 — Standalone Influx writer (parallel validation)
 
