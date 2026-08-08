@@ -1,4 +1,4 @@
-# Extra deps for JK-BMS BLE monitoring (host / jkbms_api).
+# Extra deps for JK-BMS BLE monitoring (host / jkbms_api / jkbms_db_writer).
 # Install into a venv:  pip install -r requirements-jkbms.txt
 bleak>=0.22,<4
 # PyYAML already in requirements.txt; listed for standalone host use.
@@ -6,3 +6,6 @@ pyyaml~=6.0
 # HTTP API (jkbms_api) — versions aligned with main requirements.txt.
 fastapi~=0.115.0
 uvicorn[standard]~=0.32.0
+# Influx writer (jkbms_db_writer)
+requests~=2.32.0
+influxdb-client~=1.47.0

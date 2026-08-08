@@ -55,3 +55,30 @@ services:
       timeout: 5s
       retries: 6
       start_period: 90s
+
+  # Writes measurement `jkbms` into the *existing* production InfluxDB.
+  # Does not start or modify production db_writer.
+  # Under network_mode: host, use 127.0.0.1 for both API and Influx.
+  # Provide secrets via project .env or:
+  #   docker compose --env-file ../srne-solar-controller/.env -f compose.jkbms.yaml -p jkbms up -d
+  jkbms_db_writer:
+    image: jkbms-api:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.jkbms
+    container_name: jkbms_db_writer
+    restart: unless-stopped
+    network_mode: host
+    command: ["python", "jkbms_db_writer.py"]
+    environment:
+      - TZ=${TZ:-Asia/Tokyo}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - JKBMS_API_URL=${JKBMS_API_URL:-http://127.0.0.1:5005/bms}
+      # Override docker-internal hostname when using host network.
+      - INFLUX_URL=${INFLUX_URL_HOST:-http://127.0.0.1:8086}
+      - INFLUX_TOKEN=${INFLUX_TOKEN}
+      - INFLUX_ORG=${INFLUX_ORG}
+      - INFLUX_BUCKET=${INFLUX_BUCKET}
+    depends_on:
+      jkbms_api:
+        condition: service_healthy

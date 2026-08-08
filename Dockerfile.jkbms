@@ -22,8 +22,8 @@ WORKDIR /app
 COPY requirements-jkbms.txt .
 RUN pip install --no-cache-dir -r requirements-jkbms.txt
 
-# Only the modules the API needs (no modbus / battery_controller).
-COPY log_config.py jkbms_client.py jkbms_api.py jkbms.yaml ./
+# API + parallel Influx writer (no modbus / battery_controller).
+COPY log_config.py jkbms_client.py jkbms_api.py jkbms_db_writer.py jkbms.yaml ./
 
 EXPOSE 5005
 

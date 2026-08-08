@@ -18,15 +18,31 @@ cd ~/srne-solar-controller-jkbms
 docker compose -f compose.jkbms.yaml -p jkbms up -d --build
 ```
 
+## Secrets / env
+
+Compose loads a local `.env` (gitignored). For host-network Influx access:
+
+```bash
+# Example: copy tokens from production, override URL for host network
+grep -E '^(TZ|LOG_LEVEL|INFLUX_ORG|INFLUX_BUCKET|INFLUX_TOKEN)=' \
+  ../srne-solar-controller/.env > .env
+echo 'INFLUX_URL_HOST=http://127.0.0.1:8086' >> .env
+echo 'JKBMS_API_URL=http://127.0.0.1:5005/bms' >> .env
+```
+
 ## Check
 
 ```bash
 docker compose -f compose.jkbms.yaml -p jkbms ps
 docker compose -f compose.jkbms.yaml -p jkbms logs -f jkbms_api
+docker compose -f compose.jkbms.yaml -p jkbms logs -f jkbms_db_writer
 
 curl -sS http://127.0.0.1:5005/health | python3 -m json.tool
 curl -sS http://127.0.0.1:5005/bms    | python3 -m json.tool
 ```
+
+Writer should log: `Wrote 72 jkbms points to InfluxDB …`. Query measurement
+`jkbms` in the production bucket (Data Explorer or `influx query`) — no Grafana required.
 
 ## Stop (leaves production alone)
 

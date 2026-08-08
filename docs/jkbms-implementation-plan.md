@@ -2,7 +2,7 @@
 
 **Branch:** `feature/jkbms-api`  
 **Worktree:** `/home/shobon/srne-solar-controller-jkbms` (isolated from production `~/srne-solar-controller`)  
-**Status:** Step 3 (Docker parallel stack) done — container healthy, production untouched
+**Status:** Step 4 (Influx writer) done — measurement `jkbms` verified in production bucket
 
 ## Locked decisions
 
