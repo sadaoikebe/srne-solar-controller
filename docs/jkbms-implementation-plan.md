@@ -102,23 +102,18 @@ docker compose -f compose.jkbms.yaml -p jkbms down   # leaves production alone
 ```
 
 
-### Phase 4 — Standalone Influx writer (parallel validation)
+### Phase 4 — Standalone Influx writer (parallel validation) ✅
 
 **Goal:** Persist to **running** Influx without modifying production `db_writer.py`.
 
 **Deliverables:**
 
-- `jkbms_db_writer.py` (or flag mode later):
-  - 30 s wall-aligned loop (same style as `db_writer`)
-  - `GET http://…/bms`
-  - Map JSON → Influx points (measurement `jkbms`)
-  - Write to existing `INFLUX_URL` / `INFLUX_ORG` / `INFLUX_BUCKET` / token from env
-- Compose service `jkbms_db_writer` in `compose.jkbms.yaml` only
-- Failures: log + skip tick; never crash-loop the host stack
+- [x] `jkbms_db_writer.py` — 30 s wall-aligned loop, GET `/bms`, measurement `jkbms`
+- [x] Compose service `jkbms_db_writer` (host network → `127.0.0.1:8086` + `:5005`)
+- [x] Unit tests for point transform
+- [x] Verified: 72 points/tick, SoC/V/I + 16 cells × 2 banks in `mysolardb`
 
-**Exit criteria:** Flux query shows `jkbms` points every ~30 s for both banks.
-
-Example Flux:
+**Exit criteria:** Flux query shows `jkbms` points for both banks. **Met.**
 
 ```flux
 from(bucket: "mysolardb")
