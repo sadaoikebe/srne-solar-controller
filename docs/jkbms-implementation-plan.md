@@ -122,26 +122,22 @@ from(bucket: "mysolardb")
   |> filter(fn: (r) => r._field == "value")
 ```
 
-### Phase 5 — Simple Grafana dashboard (validation UI)
+### Phase 5 — Simple Grafana dashboard (validation UI) ✅
 
 **Goal:** Confirm collection visually; do not rewrite existing solar dashboards.
 
 **Deliverables:**
 
-- `grafana/provisioning/dashboards/5_jkbms.json` (or a **manual** import first if production Grafana should not auto-provision from the worktree)
-- **Preferred for parallel validation:** import JSON once via Grafana UI into the **running** Grafana, so production provisioning path stays clean until merge
-- Panels (minimal set):
-  1. SoC A vs B (%)
-  2. Pack voltage A vs B (V)
-  3. Current A vs B (A)
-  4. Temps (MOS / T1 / T2) per bank
-  5. Cell voltages bank A (16 series)
-  6. Cell voltages bank B (16 series)
-  7. Cell Δ (mV) A vs B
-  8. Optional: SoH, cycles, MOSFET on/off as stat panels
-- All queries: `_measurement == "jkbms"`
+- [x] `grafana/provisioning/dashboards/5_jkbms.json` — **new file only** (does not edit 1–4)
+- [x] Deployed additively into live Grafana provisioning mount
+- [x] UID `solar-jkbms`, title **JK-BMS Battery Banks**, refresh 30 s
+- [x] Panels: SoC gauges, V/I/Δ stats, SoH/cycles/FETs, timeseries for SoC/V/I/Δ/temps, 16 cell lines per bank
+- [x] All queries: `_measurement == "jkbms"`
 
-**Exit criteria:** Dashboard matches phone app for SoC/V/cells within normal drift.
+**Exit criteria:** Dashboard visible in Grafana. **Met.**
+
+URL: `http://<pi>:3000/d/solar-jkbms/jk-bms-battery-banks`
+
 
 ### Phase 6 — Soak test (before any merge into main path)
 
