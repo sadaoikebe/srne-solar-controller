@@ -2,7 +2,7 @@
 
 **Branch:** `feature/jkbms-api`  
 **Worktree:** `/home/shobon/srne-solar-controller-jkbms` (isolated from production `~/srne-solar-controller`)  
-**Status:** Step 2 (jkbms_api + background cache) done — host HTTP verified
+**Status:** Step 3 (Docker parallel stack) done — container healthy, production untouched
 
 ## Locked decisions
 

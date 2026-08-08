@@ -1,0 +1,57 @@
+# Parallel JK-BMS stack — does NOT start modbus_api / db_writer / etc.
+#
+# Use a separate project name so production compose is untouched:
+#
+#   docker compose -f compose.jkbms.yaml -p jkbms up -d --build
+#   docker compose -f compose.jkbms.yaml -p jkbms logs -f
+#   docker compose -f compose.jkbms.yaml -p jkbms down
+#
+# Requires host BlueZ (bluetoothd) running. The container reaches it via
+# the system D-Bus socket. network_mode: host is the reliable path for BLE
+# on Raspberry Pi (avoids BlueZ namespace issues).
+#
+# Port: jkbms_api listens on host :5005 (production modbus_api stays on :5004).
+# Close the JK-BMS phone app while polling — BLE is single-client.
+
+name: jkbms
+
+services:
+  jkbms_api:
+    build:
+      context: .
+      dockerfile: Dockerfile.jkbms
+    image: jkbms-api:latest
+    container_name: jkbms_api
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - TZ=${TZ:-Asia/Tokyo}
+      - JKBMS_API_HOST=0.0.0.0
+      - JKBMS_API_PORT=${JKBMS_API_PORT:-5005}
+      - JKBMS_CONFIG=/app/jkbms.yaml
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/var/run/dbus/system_bus_socket
+    volumes:
+      # Host bluetoothd D-Bus socket (required for bleak).
+      - /var/run/dbus:/var/run/dbus
+      # Live config without rebuild.
+      - ./jkbms.yaml:/app/jkbms.yaml:ro
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    # Optional: match host bluetooth group if present inside the image.
+    # group_add:
+    #   - "108"
+    healthcheck:
+      # Accept ok or degraded (one bank down); fail while still starting.
+      # Port matches JKBMS_API_PORT default (5005) under network_mode: host.
+      test:
+        [
+          "CMD-SHELL",
+          # JSON is compact (no spaces). Match ok or degraded.
+          "curl -fsS http://127.0.0.1:5005/health | grep -Eq '\"status\":\"(ok|degraded)\"' || exit 1",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 90s
