@@ -34,7 +34,8 @@ services:
       - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
       - INFLUX_ORG=${INFLUX_ORG}
       - INFLUX_BUCKET=${INFLUX_BUCKET}
-      - INFLUX_BUCKET_RAW=${INFLUX_BUCKET_RAW:-solar_raw}
+      # Optional; only if a dashboard queries the raw bucket.
+      - INFLUX_BUCKET_RAW=${INFLUX_BUCKET_RAW:-}
       - INFLUX_TOKEN=${INFLUX_TOKEN}
     volumes:
       - grafana-data:/var/lib/grafana
