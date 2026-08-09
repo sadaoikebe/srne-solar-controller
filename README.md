@@ -87,6 +87,7 @@ INFLUX_TOKEN=...
 - **Close the JK-BMS phone app** while the Pi is polling — BLE is single-client.
 - Grafana: **JK-BMS Battery Banks** →  
   `http://<pi>:3000/d/solar-jkbms/jk-bms-battery-banks`
+- More detail: [`docs/jkbms.md`](docs/jkbms.md)
 
 ## Influx measurements
 
