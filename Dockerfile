@@ -7,7 +7,8 @@ ENV TZ=Asia/Tokyo \
 # Supercronic version pin — update here to upgrade.
 ARG SUPERCRONIC_VERSION=0.2.29
 
-RUN apt-get update && apt-get install -y --no-install-recommends tini curl && \
+# libglib2.0-0: required by bleak/dbus-fast for JK-BMS BLE (jkbms_api).
+RUN apt-get update && apt-get install -y --no-install-recommends tini curl libglib2.0-0 && \
     rm -rf /var/lib/apt/lists/* && \
     # Detect host architecture so the correct supercronic binary is fetched.
     # dpkg --print-architecture returns e.g. "arm64", "amd64" — matching

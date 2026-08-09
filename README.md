@@ -117,9 +117,18 @@ docker compose up -d
 | `modbus_api.py` | FastAPI bridge — owns both serial ports |
 | `battery_controller.py` | 5 s charge-control loop, state machine |
 | `daily_target.py` | Nightly planner (JMA → target SOC → charge current) |
-| `db_writer.py` | Register dump → InfluxDB every 60 s |
+| `db_writer.py` | Inverter registers → InfluxDB every 30 s (`modbus`) |
+| `jkbms_api.py` | JK-BMS BLE cache API (query-only, port 5005) |
+| `jkbms_db_writer.py` | BMS snapshot → InfluxDB every 30 s (`jkbms`) |
+| `jkbms.yaml` | BMS bank MAC / serial map |
 | `regmap.yaml` | Register address, name, unit, scale (edit to add metrics) |
 | `targets.json` | Runtime state shared between daily_target and battery_controller |
+
+## JK-BMS notes
+
+- Close the phone app while the Pi is polling (BLE is single-client).
+- Grafana: **JK-BMS Battery Banks** → `/d/solar-jkbms/jk-bms-battery-banks`
+- Optional emergency-only stack: `compose.jkbms.yaml` (prefer production compose).
 
 ## License
 

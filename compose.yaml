@@ -135,5 +135,63 @@ services:
       modbus_api:
         condition: service_healthy
 
+  # JK-BMS BLE telemetry (read-only). Same image as the rest of the stack.
+  # network_mode: host is required for reliable BlueZ access on this Pi.
+  # Port 5005 is the HTTP cache API (modbus_api remains on 5004).
+  jkbms_api:
+    image: srne-app:latest
+    container_name: jkbms_api
+    restart: unless-stopped
+    network_mode: host
+    command: ["python", "jkbms_api.py"]
+    environment:
+      - TZ=${TZ}
+      - JKBMS_API_HOST=0.0.0.0
+      - JKBMS_API_PORT=${JKBMS_API_PORT:-5005}
+      - JKBMS_CONFIG=/app/jkbms.yaml
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/var/run/dbus/system_bus_socket
+    volumes:
+      - .:/app
+      - /var/run/dbus:/var/run/dbus
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://127.0.0.1:5005/health | grep -Eq '\"status\":\"(ok|degraded)\"' || exit 1",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 90s
+
+  # Writes measurement `jkbms` to Influx (does not touch modbus db_writer).
+  # Host network → talk to Influx on published host port 8086.
+  jkbms_db_writer:
+    image: srne-app:latest
+    container_name: jkbms_db_writer
+    restart: unless-stopped
+    network_mode: host
+    working_dir: /app
+    command: ["python", "jkbms_db_writer.py"]
+    environment:
+      - TZ=${TZ}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - JKBMS_API_URL=${JKBMS_API_URL:-http://127.0.0.1:5005/bms}
+      - INFLUX_URL=http://127.0.0.1:8086
+      - INFLUX_TOKEN=${INFLUX_TOKEN}
+      - INFLUX_ORG=${INFLUX_ORG}
+      - INFLUX_BUCKET=${INFLUX_BUCKET}
+    volumes:
+      - .:/app
+    depends_on:
+      jkbms_api:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+
 volumes:
   grafana-data:

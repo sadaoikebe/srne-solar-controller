@@ -1,17 +1,12 @@
-# Parallel JK-BMS stack — does NOT start modbus_api / db_writer / etc.
-#
-# Use a separate project name so production compose is untouched:
+# OPTIONAL emergency / isolated JK-BMS stack.
+# Prefer the jkbms_* services in compose.yaml (production) for normal operation.
+# Do NOT run this project at the same time as production jkbms_db_writer
+# (double Influx writes).
 #
 #   docker compose -f compose.jkbms.yaml -p jkbms up -d --build
-#   docker compose -f compose.jkbms.yaml -p jkbms logs -f
 #   docker compose -f compose.jkbms.yaml -p jkbms down
 #
-# Requires host BlueZ (bluetoothd) running. The container reaches it via
-# the system D-Bus socket. network_mode: host is the reliable path for BLE
-# on Raspberry Pi (avoids BlueZ namespace issues).
-#
-# Port: jkbms_api listens on host :5005 (production modbus_api stays on :5004).
-# Close the JK-BMS phone app while polling — BLE is single-client.
+# Host BlueZ + network_mode: host; API on :5005.
 
 name: jkbms
 
