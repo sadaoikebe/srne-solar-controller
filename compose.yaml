@@ -120,6 +120,7 @@ services:
         condition: service_healthy
 
   daily_target:
+    build: .
     image: srne-app:latest
     container_name: daily_target
     restart: unless-stopped
@@ -131,9 +132,17 @@ services:
       - CONFIG_PATH=/app/targets.json
       - MODBUS_API_PORT=${MODBUS_API_PORT:-5004}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=${INFLUX_TOKEN}
+      - INFLUX_ORG=${INFLUX_ORG}
+      - INFLUX_BUCKET=${INFLUX_BUCKET}
+      - PLANNER_LAT=${PLANNER_LAT:-34.6903}
+      - PLANNER_LON=${PLANNER_LON:-135.1955}
     command: ["supercronic", "/app/crontab"]
     depends_on:
       modbus_api:
+        condition: service_healthy
+      influxdb:
         condition: service_healthy
 
   # JK-BMS BLE telemetry (read-only). Same image as the rest of the stack.

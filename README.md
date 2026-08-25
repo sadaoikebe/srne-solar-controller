@@ -14,8 +14,8 @@ constants in `modbus_api.py`.
   full register dump every **30 s** for logging).
 - Polls two **JK-BMS** units over **Bluetooth LE** every **30 s** (cell voltages,
   SoC, current, temps, …) — query-only, no BMS control.
-- At 22:59 each night, fetches the JMA forecast for tomorrow and computes how
-  much overnight charge is needed to cover the expected solar shortfall.
+- At 22:59 each night, fetches hourly JMA MSM GHI and computes how much
+  overnight charge is needed so tomorrow's solar is not clipped.
 - During the cheap-power window, runs a state machine
   (`UTI_CHARGING` ↔ `UTI_STOPPED` ↔ `SBU`) and tapers charge current as voltage
   rises.
@@ -27,7 +27,7 @@ constants in `modbus_api.py`.
 graph TD
     INV[Inverters<br/>PowMr + Growatt]
     BMS[JK-BMS A + B<br/>BLE]
-    JMA[JMA forecast]
+    JMA[JMA MSM GHI<br/>Open-Meteo]
     USER[Browser]
 
     INV <-->|Modbus RTU| API[modbus_api :5004]
@@ -46,6 +46,7 @@ graph TD
 
     DW -->|measurement modbus| IF[(InfluxDB)]
     JW -->|measurement jkbms| IF
+    IF --> DT
     IF --> GF[Grafana]
 ```
 
@@ -143,7 +144,7 @@ docker compose up -d
 |------|------|
 | `modbus_api.py` | FastAPI bridge — owns both serial ports |
 | `battery_controller.py` | 5 s charge-control loop, state machine |
-| `daily_target.py` | Nightly planner (JMA → target SoC → charge current) |
+| `daily_target.py` | Nightly planner (hourly GHI → target SoC → charge current) |
 | `db_writer.py` | Inverter registers → Influx (`modbus`) every 30 s |
 | `jkbms_api.py` | JK-BMS BLE cache API (query-only, port 5005) |
 | `jkbms_client.py` | BLE read-only protocol helpers |
