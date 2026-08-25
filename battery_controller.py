@@ -45,6 +45,13 @@ _SOC_DELTA_PER_A_PER_TICK: float = (
     100.0 / (BATTERY_CAPACITY_AH * 3600.0) * POLL_INTERVAL_S
 )
 
+# Inverter SoC is combined JK remain_ah. A 2% jump in 5 s is physically
+# impossible (~150 kW). Those spikes match one bank's SoC (usually B) when
+# the other bank drops out of the inverter's BMS link. Hold last good value
+# until the new reading is stable.
+SOC_JUMP_REJECT: float = 2.0          # %
+SOC_JUMP_HOLD_TICKS: int = 12         # 60 s at POLL_INTERVAL_S before accepting a step
+
 GRID_MAX_POWER_W: float    = 9000.0    # Maximum grid power budget (W)
 HYSTERESIS_SOC:   float    = 2.0       # SoC hysteresis band (%)
 CUTOFF_SOC:       float    = 9.0       # Emergency SoC floor (%)
@@ -588,6 +595,8 @@ def main() -> None:
     consecutive_failures: int                    = 0
     charge_mode:          ChargeMode             = ChargeMode.NORMAL
     sync_start_time:      datetime | None        = None
+    soc_jump_candidate:   float | None           = None
+    soc_jump_ticks:       int                    = 0
 
     while True:
         daily_charge_current, target_soc, full_charge = load_targets_from_file(
@@ -632,14 +641,47 @@ def main() -> None:
             )
 
             # ── Sub-integer SoC estimator ──────────────────────────────────
-            if estimated_soc is None or (
-                last_battery_soc is not None and abs(battery_soc - last_battery_soc) >= 2
+            # Impossible jumps: hold last good SoC. A real 1% move at 520 Ah
+            # takes minutes even at 150 A; ≥2% in one 5 s tick is a glitch
+            # (inverter briefly reporting one JK bank). Accept the new value
+            # only if it persists for SOC_JUMP_HOLD_TICKS (true 100% snaps).
+            if (
+                estimated_soc is not None
+                and last_battery_soc is not None
+                and abs(battery_soc - last_battery_soc) >= SOC_JUMP_REJECT
             ):
-                log.debug(
-                    "SoC estimator snapped to hardware value: %.0f%%", battery_soc
-                )
+                if soc_jump_candidate == battery_soc:
+                    soc_jump_ticks += 1
+                else:
+                    soc_jump_candidate = battery_soc
+                    soc_jump_ticks = 1
+                    log.warning(
+                        "Ignoring impossible SoC jump %.0f%% → %.0f%% (holding %.0f%%)",
+                        last_battery_soc, battery_soc, last_battery_soc,
+                    )
+                if soc_jump_ticks < SOC_JUMP_HOLD_TICKS:
+                    battery_soc = last_battery_soc
+                else:
+                    log.warning(
+                        "SoC step accepted after %d ticks: %.0f%% → %.0f%%",
+                        soc_jump_ticks, last_battery_soc, battery_soc,
+                    )
+                    estimated_soc = battery_soc
+                    soc_jump_candidate = None
+                    soc_jump_ticks = 0
+            elif estimated_soc is None:
                 estimated_soc = battery_soc
+                soc_jump_candidate = None
+                soc_jump_ticks = 0
             else:
+                if soc_jump_ticks:
+                    log.info(
+                        "SoC glitch ended after %d ticks (%.0fs): held %.0f%%, rejected %.0f%%",
+                        soc_jump_ticks, soc_jump_ticks * POLL_INTERVAL_S,
+                        last_battery_soc, soc_jump_candidate,
+                    )
+                soc_jump_candidate = None
+                soc_jump_ticks = 0
                 prev_est = estimated_soc
                 if last_battery_soc is not None:
                     if battery_soc == last_battery_soc - 1:
