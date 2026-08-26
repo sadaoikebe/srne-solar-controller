@@ -114,11 +114,11 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\" and r.name == \"battery_soc\")\n  |> last()",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"soc_estimate\" and r._field == \"value\" and r.bank == \"pack\" and r.name == \"soc\")\n  |> last()",
           "refId": "A"
         }
       ],
-      "title": "Battery SOC",
+      "title": "Est. SoC",
       "type": "gauge"
     },
     {
@@ -1014,7 +1014,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "SOC"
+              "options": "Est. SoC"
             },
             "properties": [
               {
@@ -1057,11 +1057,11 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\" and r.name == \"battery_soc\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> rename(columns: {\"_value\": \"SOC\"})",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"soc_estimate\" and r._field == \"value\" and r.bank == \"pack\" and r.name == \"soc\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> rename(columns: {\"_value\": \"Est. SoC\"})",
           "refId": "A"
         }
       ],
-      "title": "Battery SOC",
+      "title": "Est. SoC",
       "type": "timeseries"
     }
   ],
