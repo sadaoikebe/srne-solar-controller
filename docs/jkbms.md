@@ -6,7 +6,7 @@ Production path for dual JK-BMS packs over Bluetooth LE (read-only).
 
 | Service | Role |
 |---------|------|
-| `jkbms_api` | Background BLE poll (~30 s), HTTP cache on port **5005** |
+| `jkbms_api` | Per-bank keep-alive BLE poll (~10 s), HTTP cache on port **5005** |
 | `jkbms_db_writer` | Writes measurement **`jkbms`** to Influx every 30 s |
 
 Both use image `srne-app:latest` and `network_mode: host` (BlueZ / D-Bus). Configured in `compose.yaml`.
@@ -14,7 +14,13 @@ Both use image `srne-app:latest` and `network_mode: host` (BlueZ / D-Bus). Confi
 ## Config
 
 - Bank MAC / serial map: `jkbms.yaml`
+- `poll_interval_s` (default 10): per-bank keep-alive query interval
+- `read_timeout_s` (default 8): wait for a cell-info notify after `0x96`
 - Env: `JKBMS_API_PORT` (default 5005), Influx vars shared with the rest of the stack
+
+Each bank has its own poll task. Scan+connect is serialized on the single
+`hci0` radio; a timeout on one bank does not stall the other. Influx writes
+stay at 30 s (`jkbms_db_writer`).
 
 ## Safety
 

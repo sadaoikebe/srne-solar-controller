@@ -1,11 +1,12 @@
 # JK-BMS bank configuration (read-only monitoring).
 # Used by jkbms_client CLI and jkbms_api background poller.
 
-# How often jkbms_api refreshes both banks over BLE.
-poll_interval_s: 30
+# How often each bank is polled over an existing BLE connection.
+# Scan+connect is serialized on the one radio; frame waits are independent.
+poll_interval_s: 10
 
-# BLE query timeout budget per bank (connect + frames).
-read_timeout_s: 20
+# Wait for a cell-info notify after a 0x96 query (keep-alive).
+read_timeout_s: 8
 
 banks:
   a:

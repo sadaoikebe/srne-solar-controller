@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """JK-BMS HTTP API with background BLE cache (read-only).
 
-Polls both battery banks on a fixed interval via jkbms_client (query-only
-0x96/0x97 frames), keeps the latest snapshot in memory, and serves it over
-HTTP so consumers never block on a BLE connect.
+Each configured bank has its own keep-alive poll task (query-only 0x96/0x97).
+A timeout or missing bank does not stall the other. Scan+connect is serialized
+on the one radio; cell-info waits are not. Serves the latest per-bank snapshot
+over HTTP so consumers never block on a BLE connect.
 
 Endpoints (all GET, no body, no auth — local monitoring only)
 --------------------------------------------------------------
@@ -33,11 +34,11 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from fastapi import FastAPI, HTTPException
 
-from jkbms_client import load_config, read_banks
+from jkbms_client import BankSession, bank_error, load_config
 from log_config import get_logger
 
 log = get_logger("jkbms_api")
@@ -75,8 +76,35 @@ class BmsCache:
         self.last_poll_started_at: Optional[datetime] = None
         self.last_poll_finished_at: Optional[datetime] = None
         self.last_poll_duration_s: Optional[float] = None
-        self.last_poll_error: Optional[str] = None  # loop-level exception
+        self.last_poll_error: Optional[str] = None  # last bank error (if any)
         self.started_at: datetime = _utc_now()
+        self.configured: List[str] = []
+
+    async def update_bank(
+        self,
+        name: str,
+        sample: Dict[str, Any],
+        *,
+        started: datetime,
+        finished: datetime,
+        duration_s: float,
+        loop_error: Optional[str] = None,
+    ) -> None:
+        """Publish one bank. Does not touch other banks' ages."""
+        now_mono = time.monotonic()
+        async with self.lock:
+            self.poll_count += 1
+            self.last_poll_started_at = started
+            self.last_poll_finished_at = finished
+            self.last_poll_duration_s = duration_s
+            if loop_error:
+                self.last_poll_error = loop_error
+            elif not sample.get("ok"):
+                self.last_poll_error = str(sample.get("error") or "poll failed")
+            # Always store (including ok=False) so callers see fresh errors.
+            self.banks[name] = sample
+            self._mono_at[name] = now_mono
+            self._wall_at[name] = finished
 
     async def update_poll(
         self,
@@ -87,6 +115,7 @@ class BmsCache:
         duration_s: float,
         loop_error: Optional[str] = None,
     ) -> None:
+        """Batch helper (tests / legacy). Increments poll_count once."""
         now_mono = time.monotonic()
         async with self.lock:
             self.poll_count += 1
@@ -95,7 +124,6 @@ class BmsCache:
             self.last_poll_duration_s = duration_s
             self.last_poll_error = loop_error
             for name, sample in samples.items():
-                # Always store (including ok=False) so callers see fresh errors.
                 self.banks[name] = sample
                 self._mono_at[name] = now_mono
                 self._wall_at[name] = finished
@@ -132,9 +160,12 @@ class BmsCache:
         async with self.lock:
             ok_now = [n for n, s in self.banks.items() if s.get("ok")]
             fail_now = [n for n, s in self.banks.items() if not s.get("ok")]
+            pending = [n for n in self.configured if n not in self.banks]
             ever_polled = self.poll_count > 0
             if not ever_polled:
                 status = "starting"
+            elif pending:
+                status = "degraded" if ok_now else "starting"
             elif ok_now:
                 status = "ok" if not fail_now else "degraded"
             else:
@@ -149,78 +180,102 @@ class BmsCache:
                 "last_poll_error": self.last_poll_error,
                 "ok_banks": ok_now,
                 "fail_banks": fail_now,
+                "pending_banks": pending,
             }
 
 
 cache = BmsCache()
 _config: Dict[str, Any] = {}
-_poll_task: Optional[asyncio.Task] = None
+_poll_tasks: List[asyncio.Task] = []
 
 
 # ── Background poller ─────────────────────────────────────────────────────────
 
 
-async def _poll_once(cfg: Dict[str, Any]) -> None:
-    banks_cfg = cfg["banks"]
-    timeout_s = float(cfg.get("read_timeout_s", 20))
-    started = _utc_now()
-    t0 = time.monotonic()
-    loop_error: Optional[str] = None
-    samples: Dict[str, Dict[str, Any]] = {}
+def backoff_sleep_s(
+    interval_s: float, fail_streak: int, *, cap_s: float = 60.0
+) -> float:
+    """Sleep after a failed poll. First failure uses ``interval_s``; then 2×, 4×, … capped."""
+    interval_s = float(interval_s)
+    if fail_streak <= 1:
+        return interval_s
+    return min(float(cap_s), interval_s * (2 ** (fail_streak - 1)))
 
+
+async def _poll_loop_bank(name: str, meta: Mapping[str, Any], cfg: Mapping[str, Any]) -> None:
+    interval = max(5, int(cfg.get("poll_interval_s", 10)))
+    timeout_s = float(cfg.get("read_timeout_s", 8))
+    backoff_cap = float(cfg.get("reconnect_backoff_max_s", 60))
+    mac = str(meta.get("mac", ""))
+    serial = str(meta.get("serial") or "") or None
+    session = BankSession(
+        mac,
+        bank=name,
+        serial=serial,
+        timeout_s=timeout_s,
+        scan_timeout_s=float(cfg.get("scan_timeout_s", 10)),
+        connect_timeout_s=float(cfg.get("connect_timeout_s", 25)),
+    )
+    fail_streak = 0
+    ok_streak = 0
+    log.info(
+        "Bank poller started  bank=%s  interval=%ds  frame_timeout=%.1fs",
+        name, interval, timeout_s,
+    )
     try:
-        samples = await read_banks(banks_cfg, timeout_s=timeout_s, gap_s=1.0)
-    except Exception as e:
-        loop_error = f"{type(e).__name__}: {e}"
-        log.error("Poll loop error: %s", loop_error)
-        # Synthesize per-bank failures so the cache still advances.
-        for name, meta in banks_cfg.items():
-            samples[name] = {
-                "ok": False,
-                "bank": name,
-                "mac": str(meta.get("mac", "")).upper(),
-                "serial": meta.get("serial"),
-                "error": loop_error,
-            }
+        while True:
+            t0 = time.monotonic()
+            started = _utc_now()
+            loop_error: Optional[str] = None
+            try:
+                sample = await session.poll()
+            except Exception as e:
+                loop_error = f"{type(e).__name__}: {e}"
+                log.error("bank=%s unhandled poll error: %s", name, loop_error)
+                sample = bank_error(
+                    bank=name, mac=mac, serial_hint=serial, error=loop_error,
+                )
+                await session.close()
 
-    finished = _utc_now()
-    duration = time.monotonic() - t0
-    await cache.update_poll(
-        samples,
-        started=started,
-        finished=finished,
-        duration_s=round(duration, 2),
-        loop_error=loop_error,
-    )
+            duration = time.monotonic() - t0
+            sample = dict(sample)
+            sample["poll_duration_s"] = round(duration, 2)
+            await cache.update_bank(
+                name,
+                sample,
+                started=started,
+                finished=_utc_now(),
+                duration_s=round(duration, 2),
+                loop_error=loop_error,
+            )
 
-    ok_n = sum(1 for s in samples.values() if s.get("ok"))
-    log.info(
-        "Poll #%d finished in %.1fs — %d/%d bank(s) OK",
-        cache.poll_count, duration, ok_n, len(samples),
-    )
+            if sample.get("ok"):
+                fail_streak = 0
+                ok_streak += 1
+                if ok_streak == 1 or ok_streak % 6 == 0:
+                    log.info(
+                        "bank=%s poll ok  V=%s  I=%s A  SoC=%s%%  dt=%.2fs",
+                        name,
+                        sample.get("voltage"),
+                        sample.get("current"),
+                        sample.get("soc"),
+                        duration,
+                    )
+                sleep_s = max(0.0, interval - duration)
+            else:
+                ok_streak = 0
+                fail_streak += 1
+                sleep_s = backoff_sleep_s(interval, fail_streak, cap_s=backoff_cap)
+                log.warning(
+                    "bank=%s poll failed (%s) — retry in %.1fs",
+                    name, sample.get("error") or loop_error, sleep_s,
+                )
 
-
-async def _poll_loop(cfg: Dict[str, Any]) -> None:
-    interval = max(5, int(cfg.get("poll_interval_s", 30)))
-    log.info(
-        "Background poller started  interval=%ds  banks=%s  config=%s",
-        interval,
-        list(cfg.get("banks", {})),
-        cfg.get("config_path"),
-    )
-    # First poll immediately so /bms is useful soon after startup.
-    while True:
-        t0 = time.monotonic()
-        try:
-            await _poll_once(cfg)
-        except Exception as e:
-            # Should be rare — _poll_once already guards read_banks.
-            log.error("Unhandled poll error: %s: %s", type(e).__name__, e)
-        elapsed = time.monotonic() - t0
-        sleep_s = max(0.0, interval - elapsed)
-        if sleep_s > 0:
-            log.debug("Sleeping %.1fs until next poll", sleep_s)
-            await asyncio.sleep(sleep_s)
+            if sleep_s > 0:
+                await asyncio.sleep(sleep_s)
+    finally:
+        await session.close()
+        log.info("Bank poller stopped  bank=%s", name)
 
 
 # ── FastAPI app ───────────────────────────────────────────────────────────────
@@ -228,28 +283,35 @@ async def _poll_loop(cfg: Dict[str, Any]) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _config, _poll_task
+    global _config, _poll_tasks
     _config = load_config(CONFIG_PATH)
+    banks = _config.get("banks") or {}
+    cache.configured = list(banks)
     log.info("=" * 60)
     log.info("jkbms_api starting")
     log.info("  config     : %s", _config.get("config_path", CONFIG_PATH))
-    log.info("  banks      : %s", list(_config.get("banks", {})))
-    log.info("  interval   : %ss", _config.get("poll_interval_s"))
-    log.info("  read tout  : %ss", _config.get("read_timeout_s"))
-    log.info("  mode       : QUERY-ONLY (0x96/0x97)")
+    log.info("  banks      : %s", list(banks))
+    log.info("  interval   : %ss (per bank, keep-alive)", _config.get("poll_interval_s"))
+    log.info("  frame tout : %ss", _config.get("read_timeout_s"))
+    log.info("  mode       : QUERY-ONLY (0x96/0x97)  keep-alive")
     log.info("=" * 60)
 
-    _poll_task = asyncio.create_task(_poll_loop(_config), name="jkbms-poll")
+    _poll_tasks = [
+        asyncio.create_task(
+            _poll_loop_bank(name, meta, _config),
+            name=f"jkbms-poll-{name}",
+        )
+        for name, meta in banks.items()
+    ]
     try:
         yield
     finally:
-        log.info("jkbms_api shutting down — cancelling poller")
-        if _poll_task is not None:
-            _poll_task.cancel()
-            try:
-                await _poll_task
-            except asyncio.CancelledError:
-                pass
+        log.info("jkbms_api shutting down — cancelling %d poller(s)", len(_poll_tasks))
+        for task in _poll_tasks:
+            task.cancel()
+        if _poll_tasks:
+            await asyncio.gather(*_poll_tasks, return_exceptions=True)
+        _poll_tasks = []
         log.info("jkbms_api stopped")
 
 
@@ -307,7 +369,7 @@ async def get_bms_bank(bank_id: str) -> Dict[str, Any]:
 
     sample = snap["banks"].get(bank_id)
     if sample is None:
-        # Configured but missing from last poll payload (should not happen).
+        # Other bank(s) may already have reported; this one has not yet.
         raise HTTPException(
             status_code=503,
             detail=f"Bank {bank_id!r} not present in latest poll",

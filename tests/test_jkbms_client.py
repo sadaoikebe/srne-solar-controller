@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import struct
 import unittest
+from types import SimpleNamespace
 
 from jkbms_client import (
     ALLOWED_QUERY_CMDS,
@@ -12,6 +14,7 @@ from jkbms_client import (
     FRAME_HEADER,
     FRAME_TYPE_CELL,
     FRAME_TYPE_DEVICE,
+    BankSession,
     FrameCollector,
     crc8_sum,
     make_query_command,
@@ -168,6 +171,73 @@ class TestParsers(unittest.TestCase):
         self.assertEqual(sample["cell_count"], 16)
         self.assertEqual(len(sample["cells"]), 16)
         self.assertIsNone(sample["error"])
+
+
+class TestBankSession(unittest.TestCase):
+    def test_poll_reuses_connection(self):
+        session = BankSession(
+            "AA:BB:CC:DD:EE:FF", bank="a", serial="x", timeout_s=1,
+        )
+        connects: list[int] = []
+
+        async def fake_connect() -> None:
+            connects.append(1)
+            session._link_up = True
+            session._client = SimpleNamespace(is_connected=True)
+
+        async def fake_query() -> dict:
+            return {"ok": True, "bank": "a"}
+
+        session._connect = fake_connect  # type: ignore[method-assign]
+        session._query_cell = fake_query  # type: ignore[method-assign]
+
+        async def run() -> None:
+            first = await session.poll()
+            second = await session.poll()
+            self.assertTrue(first["ok"])
+            self.assertTrue(second["ok"])
+
+        asyncio.run(run())
+        self.assertEqual(len(connects), 1)
+
+    def test_poll_reconnects_after_failure(self):
+        session = BankSession(
+            "AA:BB:CC:DD:EE:FF", bank="a", serial="x", timeout_s=1,
+        )
+        connects: list[int] = []
+        queries = {"n": 0}
+
+        async def fake_connect() -> None:
+            connects.append(1)
+            session._link_up = True
+            session._client = SimpleNamespace(is_connected=True)
+
+        async def fake_query() -> dict:
+            queries["n"] += 1
+            if queries["n"] == 1:
+                raise RuntimeError("boom")
+            return {"ok": True, "bank": "a"}
+
+        disconnects: list[int] = []
+
+        async def fake_disconnect() -> None:
+            disconnects.append(1)
+            session._link_up = False
+            session._client = None
+
+        session._connect = fake_connect  # type: ignore[method-assign]
+        session._query_cell = fake_query  # type: ignore[method-assign]
+        session._disconnect = fake_disconnect  # type: ignore[method-assign]
+
+        async def run() -> None:
+            first = await session.poll()
+            self.assertFalse(first["ok"])
+            second = await session.poll()
+            self.assertTrue(second["ok"])
+
+        asyncio.run(run())
+        self.assertEqual(len(connects), 2)
+        self.assertGreaterEqual(len(disconnects), 1)
 
 
 if __name__ == "__main__":

@@ -12,8 +12,9 @@ constants in `modbus_api.py`.
 
 - Polls both inverters over Modbus RTU (battery state every **5 s** for control;
   full register dump every **30 s** for logging).
-- Polls two **JK-BMS** units over **Bluetooth LE** every **30 s** (cell voltages,
-  SoC, current, temps, …) — query-only, no BMS control.
+- Polls two **JK-BMS** units over **Bluetooth LE** every **10 s** (keep-alive
+  connections; cell voltages, SoC, current, temps, …) — query-only, no BMS
+  control. Influx still records `jkbms` every **30 s**.
 - At 22:59 each night, fetches hourly JMA MSM GHI and computes how much
   overnight charge is needed so tomorrow's solar is not clipped.
 - During the cheap-power window, runs a state machine
