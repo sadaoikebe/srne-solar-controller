@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from enum import Enum, IntEnum
 
+
 import requests
 
 from log_config import get_logger
@@ -127,6 +128,15 @@ class ChargeMode(Enum):
     CC        = "CC"         # Full charge: CC until any cell ≥ CELL_KNEE_V
     SOAK      = "SOAK"       # Full charge: hold max(cell) at CELL_SOAK_V (balancer window)
     CALIBRATE = "CALIBRATE"  # Full charge: creep max(cell) to CELL_CALIBRATE_V
+
+
+CHARGE_MODE_CODE: dict[ChargeMode, int] = {
+    ChargeMode.NORMAL: 0,
+    ChargeMode.CC: 1,
+    ChargeMode.SOAK: 2,
+    ChargeMode.CALIBRATE: 3,
+}
+CHARGE_CONTROL_MEASUREMENT = "charge_control"
 
 
 # ── Time-period helpers ───────────────────────────────────────────────────────
@@ -267,6 +277,10 @@ class BmsView:
     cell_delta: float | None = None
     mosfet_off: bool = False
     bank_cell_max: dict[str, float] = field(default_factory=dict)
+    hot_bank: str | None = None
+    hot_cell: int | None = None  # 1-based, matches JK app (A06)
+    balance_current: float | None = None
+    bank_balance_current: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -295,7 +309,11 @@ def parse_bms_view(
     cell_mins: list[float] = []
     deltas: list[float] = []
     bank_cell_max: dict[str, float] = {}
+    bank_balance: dict[str, float] = {}
     mosfet_off_banks: list[str] = []
+    hot_bank: str | None = None
+    hot_cell: int | None = None
+    hot_v: float | None = None
     saw_fresh = False
     for name, sample in banks.items():
         if not isinstance(sample, dict) or not sample.get("ok"):
@@ -304,13 +322,14 @@ def parse_bms_view(
         if age is not None and age > max_age_s:
             continue
         saw_fresh = True
+        bank_name = str(name)
         if _charge_mosfet_off(sample.get("charge_mosfet")):
-            mosfet_off_banks.append(str(name))
+            mosfet_off_banks.append(bank_name)
         cmax = _as_float(sample.get("cell_max"))
         cmin = _as_float(sample.get("cell_min"))
         if cmax is not None:
             cell_maxes.append(cmax)
-            bank_cell_max[str(name)] = cmax
+            bank_cell_max[bank_name] = cmax
         if cmin is not None:
             cell_mins.append(cmin)
         delta = _as_float(sample.get("cell_delta"))
@@ -318,6 +337,28 @@ def parse_bms_view(
             delta = cmax - cmin
         if delta is not None:
             deltas.append(delta)
+        bal = _as_float(sample.get("balance_current"))
+        if bal is not None:
+            bank_balance[bank_name] = bal
+        cells = sample.get("cells")
+        cell_idx: int | None = None
+        cell_v: float | None = cmax
+        if isinstance(cells, list) and cells:
+            nums: list[float] = []
+            for item in cells:
+                fv = _as_float(item)
+                if fv is None:
+                    nums.append(float("-inf"))
+                else:
+                    nums.append(fv)
+            if any(v != float("-inf") for v in nums):
+                idx0 = max(range(len(nums)), key=lambda i: nums[i])
+                cell_idx = idx0 + 1
+                cell_v = nums[idx0]
+        if cell_v is not None and (hot_v is None or cell_v > hot_v):
+            hot_v = cell_v
+            hot_bank = bank_name
+            hot_cell = cell_idx
 
     if not saw_fresh:
         return BmsView(fresh=False, abort=False, reason="stale")
@@ -326,6 +367,9 @@ def parse_bms_view(
     cell_min = min(cell_mins) if cell_mins else None
     cell_delta = max(deltas) if deltas else None
     mosfet_off = bool(mosfet_off_banks)
+    balance = None
+    if bank_balance:
+        balance = max(bank_balance.values(), key=lambda x: abs(x))
     if mosfet_off:
         reason = "mosfet_off"
         abort = True
@@ -344,6 +388,10 @@ def parse_bms_view(
         cell_delta=cell_delta,
         mosfet_off=mosfet_off,
         bank_cell_max=bank_cell_max,
+        hot_bank=hot_bank,
+        hot_cell=hot_cell,
+        balance_current=balance,
+        bank_balance_current=bank_balance,
     )
 
 
@@ -358,6 +406,120 @@ def interpret_bms_charge_abort(
         payload, max_age_s=max_age_s, cell_max_abort_v=cell_max_abort_v,
     )
     return view.fresh, view.abort, view.reason, view.cell_max
+
+
+@dataclass(frozen=True)
+class ChargeControlRecord:
+    bank: str
+    name: str
+    unit: str
+    value: float
+
+
+def hot_cell_label(bms: BmsView) -> str:
+    if bms.hot_bank and bms.hot_cell is not None:
+        return f"{bms.hot_bank}{bms.hot_cell:02d}"
+    return "n/a"
+
+
+def format_charge_tick(
+    *,
+    mode: ChargeMode,
+    i_cmd: float,
+    i_pack: float | None,
+    bms: BmsView,
+    abort: bool,
+) -> str:
+    """One-line snapshot for logs (V_max, which cell, I_cmd, phase, MOSFET, delta)."""
+    def _v(v: float | None) -> str:
+        return f"{v:.3f} V" if v is not None else "n/a"
+
+    def _a(v: float | None) -> str:
+        return f"{v:.2f} A" if v is not None else "n/a"
+
+    delta = (
+        f"{bms.cell_delta * 1000:.0f} mV" if bms.cell_delta is not None else "n/a"
+    )
+    mos = "off" if bms.mosfet_off else ("on" if bms.fresh else "n/a")
+    return (
+        f"mode={mode.value} I_cmd={i_cmd:.0f} A I_pack={_a(i_pack)} "
+        f"cell_max={_v(bms.cell_max)} ({hot_cell_label(bms)}) "
+        f"cell_min={_v(bms.cell_min)} delta={delta} "
+        f"bal={_a(bms.balance_current)} MOSFET={mos} abort={'yes' if abort else 'no'}"
+    )
+
+
+def build_charge_control_records(
+    *,
+    mode: ChargeMode,
+    i_cmd: float,
+    i_pack: float | None,
+    bms: BmsView,
+    abort: bool,
+) -> list[ChargeControlRecord]:
+    """Influx records for measurement charge_control (field=value, like soc_estimate)."""
+    recs: list[ChargeControlRecord] = [
+        ChargeControlRecord("pack", "charge_mode", "code", float(CHARGE_MODE_CODE[mode])),
+        ChargeControlRecord("pack", "i_cmd", "A", float(i_cmd)),
+        ChargeControlRecord("pack", "bms_abort", "bool", 1.0 if abort else 0.0),
+        ChargeControlRecord("pack", "charge_mosfet", "bool", 0.0 if bms.mosfet_off else 1.0),
+    ]
+    if i_pack is not None:
+        recs.append(ChargeControlRecord("pack", "i_pack", "A", float(i_pack)))
+    if bms.cell_max is not None:
+        recs.append(ChargeControlRecord("pack", "cell_max", "V", bms.cell_max))
+    if bms.cell_min is not None:
+        recs.append(ChargeControlRecord("pack", "cell_min", "V", bms.cell_min))
+    if bms.cell_delta is not None:
+        recs.append(ChargeControlRecord("pack", "cell_delta", "V", bms.cell_delta))
+    if bms.balance_current is not None:
+        recs.append(ChargeControlRecord("pack", "balance_current", "A", bms.balance_current))
+    if bms.hot_cell is not None:
+        recs.append(ChargeControlRecord("pack", "hot_cell", "count", float(bms.hot_cell)))
+    if bms.hot_bank:
+        recs.append(ChargeControlRecord(
+            "pack", "hot_bank", "code", 0.0 if bms.hot_bank == "a" else 1.0,
+        ))
+    for bank, val in bms.bank_balance_current.items():
+        recs.append(ChargeControlRecord(bank, "balance_current", "A", val))
+    for bank, val in bms.bank_cell_max.items():
+        recs.append(ChargeControlRecord(bank, "cell_max", "V", val))
+    return recs
+
+
+_influx_client = None
+
+
+def write_charge_control(records: list[ChargeControlRecord]) -> None:
+    """Best-effort Influx write. Missing env or errors must not stop control."""
+    token = os.getenv("INFLUX_TOKEN")
+    org = os.getenv("INFLUX_ORG")
+    bucket = os.getenv("INFLUX_BUCKET")
+    if not token or not org or not bucket or not records:
+        return
+    global _influx_client
+    try:
+        import influxdb_client
+        from influxdb_client import Point
+        from influxdb_client.client.write_api import SYNCHRONOUS
+        if _influx_client is None:
+            url = os.getenv("INFLUX_URL", "http://influxdb:8086")
+            _influx_client = influxdb_client.InfluxDBClient(url=url, token=token, org=org)
+            log.info("charge_control Influx: %s  org=%s  bucket=%s", url, org, bucket)
+        ts_ns = time.time_ns()
+        points = [
+            Point(CHARGE_CONTROL_MEASUREMENT)
+            .time(ts_ns)
+            .tag("bank", rec.bank)
+            .tag("name", rec.name)
+            .tag("unit", rec.unit)
+            .field("value", float(rec.value))
+            for rec in records
+        ]
+        with _influx_client.write_api(write_options=SYNCHRONOUS) as w:
+            w.write(bucket=bucket, org=org, record=points)
+    except Exception as e:
+        log.warning("charge_control Influx write failed: %s", e)
 
 
 def seconds_until_cheap_end(now: datetime | None = None) -> float:
@@ -993,7 +1155,9 @@ def main() -> None:
     soc_payload:          dict | None            = None
     bms:                  BmsView                = BmsView(fresh=False, abort=False, reason="missing")
     pack_charge_a:        float                  = 0.0
+    i_pack:               float | None           = None
     load_power:           float                  = 0.0
+    fc_log_ticks:         int                    = 0
 
     while True:
         daily_charge_current, target_soc, full_charge = load_targets_from_file(
@@ -1027,6 +1191,7 @@ def main() -> None:
             battery_current = -_to_signed_16(int(limited_data["0x0102"])) / 10.0
             load_power      = int(limited_data["0x021c"]) + int(limited_data["0x0234"])
             pack_charge_a   = max(0.0, battery_current)
+            i_pack          = battery_current
 
             log.debug(
                 "Readings: V=%.1f V  I=%+.1f A  load=%.0f W",
@@ -1297,6 +1462,7 @@ def main() -> None:
                 last_output_priority = desired_priority
 
         # ── Charge current (only with fresh data) ─────────────────────
+        i_cmd_now = last_charge_current
         if limited_data and estimated_soc is not None:
             target_charge_current = adjust_battery_charge(
                 estimated_soc, load_power, battery_voltage, daily_charge_current, current_state,
@@ -1307,6 +1473,7 @@ def main() -> None:
                 i_prev=last_charge_current,
                 mosfet_resume_hold=mosfet_resume_hold,
             )
+            i_cmd_now = target_charge_current
             if last_charge_current != target_charge_current:
                 log.info(
                     "Charge current: %.0f A → %.0f A",
@@ -1314,6 +1481,33 @@ def main() -> None:
                 )
                 if set_charge_current(target_charge_current):
                     last_charge_current = target_charge_current
+
+        tick_line = format_charge_tick(
+            mode=charge_mode,
+            i_cmd=i_cmd_now,
+            i_pack=i_pack,
+            bms=bms,
+            abort=bms_abort,
+        )
+        if charge_mode != ChargeMode.NORMAL or bms_abort:
+            fc_log_ticks += 1
+            if fc_log_ticks == 1 or fc_log_ticks % 12 == 0:
+                log.info("Charge: %s", tick_line)
+            else:
+                log.debug("Charge: %s", tick_line)
+        else:
+            fc_log_ticks = 0
+            log.debug("Charge: %s", tick_line)
+
+        write_charge_control(
+            build_charge_control_records(
+                mode=charge_mode,
+                i_cmd=i_cmd_now,
+                i_pack=i_pack,
+                bms=bms,
+                abort=bms_abort,
+            )
+        )
 
         time.sleep(POLL_INTERVAL_S)
 

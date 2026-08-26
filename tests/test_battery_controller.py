@@ -14,6 +14,7 @@ from battery_controller import (
     CELL_MIN_FLOOR_V,
     CELL_SOAK_V,
     CC_MAX_CURRENT,
+    CHARGE_MODE_CODE,
     ChargeMode,
     FullChargeState,
     SOAK_MIN_DURATION_S,
@@ -21,8 +22,11 @@ from battery_controller import (
     adjust_battery_charge,
     advance_full_charge,
     banks_at_full,
+    build_charge_control_records,
     cell_cv_current,
     determine_next_state,
+    format_charge_tick,
+    hot_cell_label,
     interpret_bms_charge_abort,
     interpret_soc,
     parse_bms_view,
@@ -38,6 +42,8 @@ def _bank(
     cell_min: float = 3.30,
     cell_delta: float | None = None,
     charge_mosfet: object = True,
+    cells: list[float] | None = None,
+    balance_current: float = 0.0,
 ) -> dict:
     delta = cell_delta if cell_delta is not None else cell_max - cell_min
     return {
@@ -47,6 +53,8 @@ def _bank(
         "cell_min": cell_min,
         "cell_delta": delta,
         "charge_mosfet": charge_mosfet,
+        "cells": cells,
+        "balance_current": balance_current,
     }
 
 
@@ -472,6 +480,56 @@ class TestSecondsUntilCheapEnd(unittest.TestCase):
     def test_daytime_is_zero(self):
         now = datetime(2026, 8, 26, 12, 0, 0)
         self.assertEqual(seconds_until_cheap_end(now), 0.0)
+
+
+class TestChargeObservability(unittest.TestCase):
+    def test_hot_cell_is_one_based(self):
+        cells = [3.30] * 16
+        cells[5] = 3.51  # A06
+        view = parse_bms_view(
+            _bms(
+                ("a", _bank(cell_max=3.51, cell_min=3.30, cells=cells, balance_current=2.0)),
+                ("b", _bank(cell_max=3.40, cell_min=3.38, cells=[3.39] * 16)),
+            )
+        )
+        self.assertEqual(view.hot_bank, "a")
+        self.assertEqual(view.hot_cell, 6)
+        self.assertEqual(hot_cell_label(view), "a06")
+        self.assertAlmostEqual(view.balance_current, 2.0)
+
+    def test_log_line_includes_phase_and_hot_cell(self):
+        cells = [3.30] * 16
+        cells[5] = 3.50
+        view = parse_bms_view(
+            _bms(("a", _bank(cell_max=3.50, cell_min=3.45, cells=cells, balance_current=1.8)))
+        )
+        line = format_charge_tick(
+            mode=ChargeMode.SOAK, i_cmd=24.0, i_pack=22.5, bms=view, abort=False,
+        )
+        self.assertIn("mode=SOAK", line)
+        self.assertIn("I_cmd=24 A", line)
+        self.assertIn("a06", line)
+        self.assertIn("MOSFET=on", line)
+        self.assertIn("abort=no", line)
+
+    def test_influx_records_include_mode_and_i_cmd(self):
+        view = parse_bms_view(
+            _bms(
+                ("a", _bank(cell_max=3.50, cell_min=3.45, balance_current=1.5)),
+                ("b", _bank(cell_max=3.48, cell_min=3.46)),
+            )
+        )
+        recs = build_charge_control_records(
+            mode=ChargeMode.SOAK, i_cmd=20.0, i_pack=18.0, bms=view, abort=False,
+        )
+        by = {(r.bank, r.name): r for r in recs}
+        self.assertEqual(by[("pack", "charge_mode")].value, CHARGE_MODE_CODE[ChargeMode.SOAK])
+        self.assertEqual(by[("pack", "i_cmd")].value, 20.0)
+        self.assertEqual(by[("pack", "i_pack")].value, 18.0)
+        self.assertEqual(by[("pack", "bms_abort")].value, 0.0)
+        self.assertEqual(by[("pack", "charge_mosfet")].value, 1.0)
+        self.assertIn(("a", "balance_current"), by)
+        self.assertIn(("pack", "cell_max"), by)
 
 
 if __name__ == "__main__":

@@ -103,7 +103,8 @@ INFLUX_TOKEN=...
 |-------------|--------|---------|
 | `modbus` | Inverter registers via `db_writer` + `regmap.yaml` | 30 s |
 | `jkbms` | BMS snapshot via `jkbms_db_writer` | 30 s |
-| `soc_estimate` | Shadow pack SoC (`soc_estimator`, not used for SBU/UTI) | 10 s |
+| `soc_estimate` | Pack SoC (`soc_estimator` → `GET /soc`) | 10 s |
+| `charge_control` | Controller phase / I_cmd / cells (`battery_controller`) | 5 s |
 
 Optional Growatt **raw** dump (`modbus_raw` in a separate bucket) is **off** by
 default. Set `INFLUX_BUCKET_RAW=solar_raw` in `.env` and recreate `db_writer`

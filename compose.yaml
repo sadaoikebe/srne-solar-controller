@@ -117,10 +117,16 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - SOC_API_URL=${SOC_API_URL:-http://host.docker.internal:5006/soc}
       - BMS_API_URL=${BMS_API_URL:-http://host.docker.internal:5005/bms}
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=${INFLUX_TOKEN}
+      - INFLUX_ORG=${INFLUX_ORG}
+      - INFLUX_BUCKET=${INFLUX_BUCKET}
     volumes:
       - .:/app
     depends_on:
       modbus_api:
+        condition: service_healthy
+      influxdb:
         condition: service_healthy
 
   daily_target:
