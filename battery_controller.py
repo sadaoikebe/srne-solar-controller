@@ -3,14 +3,17 @@
 Polls the inverter every POLL_INTERVAL_S seconds via modbus_api (V / I / load
 and writes). Pack SoC comes from soc_estimator GET /soc — not PowMr 0x0100.
 Charge abort (I = 0) comes from jkbms_api GET /bms: either charge MOSFET off
-or cell_max >= CELL_MAX_ABORT_V. BULK/SYNC are unchanged.
+or cell_max >= CELL_MAX_ABORT_V (CELL_CALIBRATE_ABORT_V during CALIBRATE).
+
+Full-charge nights run CC → SOAK → CALIBRATE on max(cell), not clocked SYNC.
+Daily (NORMAL) charging is CC to target_soc until the cell knee, then cell-CV.
 
 Log levels
 ----------
   DEBUG  — raw register values, SoC estimator steps, grid-limit arithmetic,
-           charge-taper table lookups, per-tick loop heartbeat
+           cell-CV arithmetic, per-tick loop heartbeat
   INFO   — state transitions, charge-current changes, priority changes,
-           config reloads, startup/shutdown, BMS abort clear
+           config reloads, startup/shutdown, BMS abort clear, full-charge phases
   WARNING — fetch failures, config-file errors (non-fatal), BMS charge abort
   ERROR  — currently unused (caller should watch WARNING closely)
 """
@@ -20,7 +23,8 @@ import json
 import math
 import os
 import time
-from datetime import date, datetime, timezone
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta, timezone
 from enum import Enum, IntEnum
 
 import requests
@@ -47,21 +51,42 @@ FAIL_SAFE_TICKS:       int = 60        # After this many consecutive fetch failu
 SOC_STALE_S:          float = 30.0     # /soc age_s above this → treat as missing
 CELL_MIN_FLOOR_V:     float = 3.05     # weakest-cell floor (matches estimator empty_cell_v)
 BMS_STALE_S:          float = 25.0     # /bms bank age_s above this → bank not used
-CELL_MAX_ABORT_V:     float = 3.55     # JK OVPR; I = 0 at or above this cell voltage
+CELL_MAX_ABORT_V:     float = 3.55     # JK OVPR; I = 0 at or above this (not CALIBRATE)
 
-# ── Full-charge (LFP balancing / SoC sync) constants ─────────────────────────
-# Triggered by daily_target.py setting "full_charge: true" in targets.json
-# the night before a tier-5 weather day, no more than once per
-# FULL_CHARGE_MIN_INTERVAL_DAYS.  Phases: BULK → SYNC → done. BULK pushes at
-# BULK_MAX_CURRENT and the voltage taper alone shapes the charge curve into
-# absorption; SYNC then briefly nudges past absorption to recalibrate BMS SoC.
+# ── Full-charge (CC → SOAK → CALIBRATE) ──────────────────────────────────────
+# Triggered by daily_target.py setting "full_charge: true" in targets.json.
+# CC fills at up to CC_MAX_CURRENT until any cell hits CELL_KNEE_V.
+# SOAK holds max(cell) at CELL_SOAK_V so the 2 A balancer can run.
+# CALIBRATE creeps to CELL_CALIBRATE_V (JK / estimator full snap). Abort
+# during CALIBRATE is CELL_CALIBRATE_ABORT_V so 3.59 is reachable.
 
-BULK_MAX_CURRENT:      float = 120.0  # A — BULK initial cap (voltage taper shapes the curve)
-SYNC_START_TIME:       str   = "06:43"  # Begin SYNC nudge at/after this time
-SYNC_DEADLINE:         str   = "06:58"  # Hard stop (cheap period ends 06:58, sbu_fixed at 06:59)
-SYNC_MAX_CURRENT:      float = 30.0   # A — current cap during SYNC nudge
-SYNC_VOLTAGE_CEILING:  float = 57.2   # V — abort SYNC if voltage exceeds this
-SYNC_TIMEOUT_MINUTES:  int   = 15     # Maximum SYNC duration
+CC_MAX_CURRENT:            float = 120.0
+CELL_KNEE_V:               float = 3.45
+CELL_SOAK_V:               float = 3.50
+CELL_CALIBRATE_V:          float = 3.59
+CELL_CALIBRATE_ABORT_V:    float = 3.62  # below OVP 3.65; allows 3.59 creep
+PACK_KNEE_V:               float = 55.2  # backstop to enter SOAK if BLE is down
+PACK_ABORT_V:              float = 56.8  # ~3.55 × 16; hard I = 0
+I_SLEW_A:                  float = 10.0  # A per poll tick
+SOAK_HOLD_CURRENT_A:       float = 20.0  # still feeding lagging cells at 3.50 V
+CALIBRATE_MAX_CURRENT:     float = 10.0
+SOAK_MIN_CELL_V:           float = 3.45
+SOAK_TAIL_CURRENT_A:       float = 15.0
+SOAK_TAIL_HOLD_S:          int   = 180
+SOAK_DELTA_V:              float = 0.020
+SOAK_MIN_DURATION_S:       int   = 45 * 60
+CALIBRATE_RESERVE_S:       int   = 8 * 60
+MOSFET_RESUME_CELL_V:      float = 3.48
+MOSFET_RESUME_COOLDOWN_S:  int   = 90
+MOSFET_RESUME_CURRENT_A:   float = 8.0
+FULL_REMAIN_FRAC:          float = 0.995
+BLE_DVDT_HORIZON_S:        float = 10.0
+
+PACK_VOLT_LIMITS: list[tuple[float, float]] = [
+    (55.2, 120), (55.6, 80), (55.8, 60), (56.0, 40),
+    (56.3, 30), (56.5, 24), (56.6, 18), (56.7, 14),
+    (56.8, 10), (56.9, 7),
+]
 
 # ── Runtime configuration ─────────────────────────────────────────────────────
 
@@ -98,9 +123,10 @@ class State(Enum):
 
 
 class ChargeMode(Enum):
-    NORMAL = "NORMAL"  # Default — daily SoC-target-driven charging
-    BULK   = "BULK"    # Full charge phase 1: push to absorption; voltage taper shapes the curve
-    SYNC   = "SYNC"    # Full charge phase 2: brief nudge to force BMS SoC calibration to 100%
+    NORMAL    = "NORMAL"     # Daily SoC-target fill; cell-CV if max(cell) hits the knee
+    CC        = "CC"         # Full charge: CC until any cell ≥ CELL_KNEE_V
+    SOAK      = "SOAK"       # Full charge: hold max(cell) at CELL_SOAK_V (balancer window)
+    CALIBRATE = "CALIBRATE"  # Full charge: creep max(cell) to CELL_CALIBRATE_V
 
 
 # ── Time-period helpers ───────────────────────────────────────────────────────
@@ -222,56 +248,296 @@ def _charge_mosfet_off(value: object) -> bool:
     return False
 
 
+def _as_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+@dataclass(frozen=True)
+class BmsView:
+    fresh: bool
+    abort: bool
+    reason: str
+    cell_max: float | None = None
+    cell_min: float | None = None
+    cell_delta: float | None = None
+    mosfet_off: bool = False
+    bank_cell_max: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
+class FullChargeState:
+    mode: ChargeMode = ChargeMode.NORMAL
+    soak_started_at: datetime | None = None
+    tail_ok_since: datetime | None = None
+    complete: bool = False
+    complete_reason: str | None = None
+
+
+def parse_bms_view(
+    payload: dict | None,
+    *,
+    max_age_s: float = BMS_STALE_S,
+    cell_max_abort_v: float = CELL_MAX_ABORT_V,
+) -> BmsView:
+    """Fresh ok banks only. abort uses cell_max_abort_v (3.55, or 3.62 in CALIBRATE)."""
+    if not payload:
+        return BmsView(fresh=False, abort=False, reason="missing")
+    banks = payload.get("banks")
+    if not isinstance(banks, dict) or not banks:
+        return BmsView(fresh=False, abort=False, reason="invalid")
+
+    cell_maxes: list[float] = []
+    cell_mins: list[float] = []
+    deltas: list[float] = []
+    bank_cell_max: dict[str, float] = {}
+    mosfet_off_banks: list[str] = []
+    saw_fresh = False
+    for name, sample in banks.items():
+        if not isinstance(sample, dict) or not sample.get("ok"):
+            continue
+        age = _as_float(sample.get("age_s"))
+        if age is not None and age > max_age_s:
+            continue
+        saw_fresh = True
+        if _charge_mosfet_off(sample.get("charge_mosfet")):
+            mosfet_off_banks.append(str(name))
+        cmax = _as_float(sample.get("cell_max"))
+        cmin = _as_float(sample.get("cell_min"))
+        if cmax is not None:
+            cell_maxes.append(cmax)
+            bank_cell_max[str(name)] = cmax
+        if cmin is not None:
+            cell_mins.append(cmin)
+        delta = _as_float(sample.get("cell_delta"))
+        if delta is None and cmax is not None and cmin is not None:
+            delta = cmax - cmin
+        if delta is not None:
+            deltas.append(delta)
+
+    if not saw_fresh:
+        return BmsView(fresh=False, abort=False, reason="stale")
+
+    cell_max = max(cell_maxes) if cell_maxes else None
+    cell_min = min(cell_mins) if cell_mins else None
+    cell_delta = max(deltas) if deltas else None
+    mosfet_off = bool(mosfet_off_banks)
+    if mosfet_off:
+        reason = "mosfet_off"
+        abort = True
+    elif cell_max is not None and cell_max >= cell_max_abort_v:
+        reason = "cell_max"
+        abort = True
+    else:
+        reason = "ok"
+        abort = False
+    return BmsView(
+        fresh=True,
+        abort=abort,
+        reason=reason,
+        cell_max=cell_max,
+        cell_min=cell_min,
+        cell_delta=cell_delta,
+        mosfet_off=mosfet_off,
+        bank_cell_max=bank_cell_max,
+    )
+
+
 def interpret_bms_charge_abort(
     payload: dict | None,
     *,
     max_age_s: float = BMS_STALE_S,
     cell_max_abort_v: float = CELL_MAX_ABORT_V,
 ) -> tuple[bool, bool, str, float | None]:
-    """Return (fresh, abort, reason, cell_max).
+    """Return (fresh, abort, reason, cell_max). Wrapper around parse_bms_view."""
+    view = parse_bms_view(
+        payload, max_age_s=max_age_s, cell_max_abort_v=cell_max_abort_v,
+    )
+    return view.fresh, view.abort, view.reason, view.cell_max
 
-    abort is True only when a live bank shows charge MOSFET off or
-    cell_max >= cell_max_abort_v. Missing/stale is not abort — the caller
-    latches the last abort so a trip stays closed if BLE drops.
-    reason: ok | mosfet_off | cell_max | missing | stale | invalid
+
+def seconds_until_cheap_end(now: datetime | None = None) -> float:
+    """Seconds remaining in the cheap window, or 0 if not in it."""
+    now = now or datetime.now()
+    cheap = next(p for p in TIME_PERIODS if p["name"] == "cheap")
+    start = _str_to_time(cheap["start"])
+    end = _str_to_time(cheap["end"])
+    t = now.time()
+    if not _time_in_period(t, start, end):
+        return 0.0
+    end_dt = datetime.combine(now.date(), end)
+    if end < start and t >= start:
+        end_dt += timedelta(days=1)
+    return max(0.0, (end_dt - now).total_seconds())
+
+
+def pack_volt_current_cap(battery_voltage: float) -> float:
+    """Dumb pack-V current cap. Used when cell voltages are missing."""
+    for volt_threshold, limit in PACK_VOLT_LIMITS:
+        if battery_voltage < volt_threshold:
+            return float(limit)
+    return 2.0
+
+
+def slew_current(i_prev: float, i_want: float, i_slew: float = I_SLEW_A) -> float:
+    if i_want > i_prev + i_slew:
+        return i_prev + i_slew
+    if i_want < i_prev - i_slew:
+        return i_prev - i_slew
+    return i_want
+
+
+def cell_cv_current(
+    *,
+    cell_max: float | None,
+    v_set: float,
+    i_prev: float,
+    i_cc: float,
+    dv_dt: float | None = None,
+    i_slew: float = I_SLEW_A,
+    cell_abort_v: float = CELL_MAX_ABORT_V,
+    cell_knee_v: float = CELL_KNEE_V,
+    i_hold: float = SOAK_HOLD_CURRENT_A,
+    ble_horizon_s: float = BLE_DVDT_HORIZON_S,
+) -> float | None:
+    """CC below the knee; taper toward i_hold by v_set; 0 at abort.
+
+    Returns None when cell_max is missing so the caller can use pack-V.
     """
-    if not payload:
-        return False, False, "missing", None
-    banks = payload.get("banks")
-    if not isinstance(banks, dict) or not banks:
-        return False, False, "invalid", None
+    i_cc = max(0.0, i_cc)
+    if cell_max is None:
+        return None
+    if cell_max >= cell_abort_v:
+        return 0.0
+    if dv_dt is not None and dv_dt > 0:
+        headroom = cell_abort_v - cell_max
+        if headroom / dv_dt <= ble_horizon_s:
+            return 0.0
+    if cell_max < cell_knee_v:
+        i_want = i_cc
+    elif cell_max < v_set:
+        span = max(v_set - cell_knee_v, 1e-6)
+        frac = (cell_max - cell_knee_v) / span
+        floor = min(i_hold, i_cc)
+        i_want = i_cc + frac * (floor - i_cc)
+    else:
+        overshoot = cell_max - v_set
+        if overshoot >= 0.030:
+            i_want = 0.0
+        else:
+            hold = min(i_hold, i_cc)
+            i_want = max(0.0, hold - 800.0 * overshoot)
+    i_want = max(0.0, min(i_cc, i_want))
+    return slew_current(i_prev, i_want, i_slew)
 
-    cell_maxes: list[float] = []
-    mosfet_off_banks: list[str] = []
-    saw_fresh = False
-    for name, sample in banks.items():
-        if not isinstance(sample, dict) or not sample.get("ok"):
+
+def banks_at_full(
+    bms: BmsView,
+    soc_payload: dict | None,
+    *,
+    full_cell_v: float = CELL_CALIBRATE_V,
+    remain_frac: float = FULL_REMAIN_FRAC,
+    min_banks: int = 2,
+) -> bool:
+    """True when both banks have snapped full (cell_max or remain_est)."""
+    if bms.fresh and len(bms.bank_cell_max) >= min_banks:
+        if all(v >= full_cell_v for v in bms.bank_cell_max.values()):
+            return True
+    banks = soc_payload.get("banks") if isinstance(soc_payload, dict) else None
+    if not isinstance(banks, dict):
+        return False
+    n = 0
+    for entry in banks.values():
+        if not isinstance(entry, dict):
             continue
-        try:
-            age = sample.get("age_s")
-            if age is not None and float(age) > max_age_s:
-                continue
-        except (TypeError, ValueError):
-            continue
-        saw_fresh = True
-        if _charge_mosfet_off(sample.get("charge_mosfet")):
-            mosfet_off_banks.append(str(name))
-        cmax = sample.get("cell_max")
-        if cmax is not None:
-            try:
-                cell_maxes.append(float(cmax))
-            except (TypeError, ValueError):
-                pass
+        usable = _as_float(entry.get("usable_ah"))
+        remain = _as_float(entry.get("remain_est"))
+        if usable is not None and usable > 1.0 and remain is not None:
+            if remain >= usable * remain_frac:
+                n += 1
+    return n >= min_banks
 
-    if not saw_fresh:
-        return False, False, "stale", None
 
-    cell_max = max(cell_maxes) if cell_maxes else None
-    if mosfet_off_banks:
-        return True, True, "mosfet_off", cell_max
-    if cell_max is not None and cell_max >= cell_max_abort_v:
-        return True, True, "cell_max", cell_max
-    return True, False, "ok", cell_max
+def advance_full_charge(
+    state: FullChargeState,
+    *,
+    now: datetime,
+    bms: BmsView,
+    pack_v: float,
+    pack_charge_a: float,
+    soc_payload: dict | None,
+    seconds_left: float,
+) -> FullChargeState:
+    """CC → SOAK → CALIBRATE → done. Does not clear targets.json."""
+    mode = ChargeMode.CC if state.mode == ChargeMode.NORMAL else state.mode
+    soak_started = state.soak_started_at
+    tail_ok_since = state.tail_ok_since
+
+    if mode == ChargeMode.CC:
+        enter = False
+        if bms.fresh and bms.cell_max is not None and bms.cell_max >= CELL_KNEE_V:
+            enter = True
+        elif not bms.fresh and pack_v >= PACK_KNEE_V:
+            enter = True
+        if enter:
+            return FullChargeState(mode=ChargeMode.SOAK, soak_started_at=now)
+        return FullChargeState(mode=ChargeMode.CC)
+
+    if mode == ChargeMode.SOAK:
+        if soak_started is None:
+            soak_started = now
+        if pack_charge_a <= SOAK_TAIL_CURRENT_A:
+            tail_ok_since = tail_ok_since or now
+        else:
+            tail_ok_since = None
+        elapsed = (now - soak_started).total_seconds()
+        cells_in = (
+            bms.fresh
+            and bms.cell_min is not None
+            and bms.cell_min >= SOAK_MIN_CELL_V
+        )
+        delta_ok = bms.cell_delta is not None and bms.cell_delta <= SOAK_DELTA_V
+        tail_held = (
+            tail_ok_since is not None
+            and (now - tail_ok_since).total_seconds() >= SOAK_TAIL_HOLD_S
+        )
+        quality = cells_in and (delta_ok or tail_held)
+        go_cal = False
+        if quality and elapsed >= SOAK_MIN_DURATION_S:
+            go_cal = True
+        if (
+            seconds_left <= CALIBRATE_RESERVE_S
+            and bms.fresh
+            and bms.cell_max is not None
+            and bms.cell_max >= CELL_SOAK_V - 0.02
+        ):
+            go_cal = True
+        if go_cal:
+            return FullChargeState(
+                mode=ChargeMode.CALIBRATE, soak_started_at=soak_started,
+            )
+        return FullChargeState(
+            mode=ChargeMode.SOAK,
+            soak_started_at=soak_started,
+            tail_ok_since=tail_ok_since,
+        )
+
+    if mode == ChargeMode.CALIBRATE:
+        if banks_at_full(bms, soc_payload):
+            return FullChargeState(
+                mode=ChargeMode.NORMAL,
+                complete=True,
+                complete_reason="calibrated (cell_max or remain_est at full)",
+            )
+        return FullChargeState(
+            mode=ChargeMode.CALIBRATE, soak_started_at=state.soak_started_at,
+        )
+
+    return FullChargeState(mode=mode, soak_started_at=soak_started, tail_ok_since=tail_ok_since)
 
 
 def set_charge_current(current: float) -> bool:
@@ -595,6 +861,10 @@ def adjust_battery_charge(
     state: State,
     charge_mode: ChargeMode = ChargeMode.NORMAL,
     bms_abort: bool = False,
+    cell_max: float | None = None,
+    dv_dt: float | None = None,
+    i_prev: float = 0.0,
+    mosfet_resume_hold: bool = False,
 ) -> float:
     """Return the target charge current (A) for the given state and conditions."""
     if state in (State.SBU, State.UTI_STOPPED):
@@ -603,70 +873,72 @@ def adjust_battery_charge(
     if bms_abort:
         log.debug("Charge current = 0 A (BMS abort)")
         return 0.0
+    if battery_voltage >= PACK_ABORT_V:
+        log.warning(
+            "Pack abort: voltage %.2f V >= %.2f V — charge current 0 A",
+            battery_voltage, PACK_ABORT_V,
+        )
+        return 0.0
 
     grid_limit = calculate_grid_limit_current(load_power, battery_voltage)
-
-    # SYNC: bypass voltage taper to nudge BMS coulomb counter to 100%.
-    # Hard-abort if voltage approaches BMS over-voltage cutoff.
-    if charge_mode == ChargeMode.SYNC:
-        if battery_voltage >= SYNC_VOLTAGE_CEILING:
-            log.warning(
-                "SYNC abort: voltage %.2f V >= ceiling %.2f V — charge current 0 A",
-                battery_voltage, SYNC_VOLTAGE_CEILING,
-            )
+    if mosfet_resume_hold:
+        if cell_max is not None and cell_max >= MOSFET_RESUME_CELL_V:
+            log.debug("MOSFET resume hold: cell_max %.3f V still high — 0 A", cell_max)
             return 0.0
-        target = min(SYNC_MAX_CURRENT, grid_limit)
+        target = min(MOSFET_RESUME_CURRENT_A, grid_limit)
+        final = slew_current(i_prev, target)
         log.debug(
-            "SYNC charge: cap=%.0f A  grid_limit=%.0f A  V=%.2f V  → %.0f A",
-            SYNC_MAX_CURRENT, grid_limit, battery_voltage, target,
+            "MOSFET resume: cap=%.0f A  grid=%.0f A  i_prev=%.0f A → %.0f A",
+            MOSFET_RESUME_CURRENT_A, grid_limit, i_prev, final,
         )
-        return target
+        return float(round(final))
 
-    # State.UTI_CHARGING — same taper for NORMAL and BULK; only the upper
-    # bound differs. NORMAL is bounded by the daily target (0 on sunny days,
-    # which would starve a full charge). BULK starts at the hardware ceiling
-    # so the voltage taper alone shapes the curve into absorption.
-    upper_bound = BULK_MAX_CURRENT if charge_mode == ChargeMode.BULK else daily_charge_current
-    target = upper_bound
-
-    SOC_LIMITS = [
-        (60, 120), (70, 105), (80,  90), (85, 80),
-        (90,  70), (93,  60), (96,  50), (98, 40),
-        (99,  30), (100, 20),
-    ]
-    soc_limit_applied: float | None = None
-    for soc_threshold, limit in SOC_LIMITS:
-        if battery_soc < soc_threshold:
-            target = min(float(limit), target)
-            soc_limit_applied = float(limit)
-            break
+    if charge_mode == ChargeMode.CALIBRATE:
+        i_cc = CALIBRATE_MAX_CURRENT
+        v_set = CELL_CALIBRATE_V
+        abort_v = CELL_CALIBRATE_ABORT_V
+    elif charge_mode in (ChargeMode.CC, ChargeMode.SOAK):
+        i_cc = CC_MAX_CURRENT
+        v_set = CELL_SOAK_V
+        abort_v = CELL_MAX_ABORT_V
     else:
-        target = min(10.0, target)
-        soc_limit_applied = 10.0
+        i_cc = daily_charge_current
+        v_set = CELL_SOAK_V
+        abort_v = CELL_MAX_ABORT_V
 
-    VOLT_LIMITS = [
-        (55.2, 120), (55.6,  80), (55.8, 60), (56.0, 40),
-        (56.3,  30), (56.5,  24), (56.6, 18), (56.7, 14),
-        (56.8,  10), (56.9,   7),
-    ]
-    volt_limit_applied: float | None = None
-    for volt_threshold, limit in VOLT_LIMITS:
-        if battery_voltage < volt_threshold:
-            target = min(float(limit), target)
-            volt_limit_applied = float(limit)
-            break
-    else:
-        target = min(2.0, target)
-        volt_limit_applied = 2.0
-
-    final = min(grid_limit, target)
-    log.debug(
-        "%s charge: cap=%.0f A  soc_limit=%.0f A (SoC=%.0f%%)  "
-        "volt_limit=%.0f A (V=%.2f V)  grid_limit=%.0f A  → %.0f A",
-        charge_mode.value, upper_bound, soc_limit_applied, battery_soc,
-        volt_limit_applied, battery_voltage, grid_limit, final,
+    cell_i = cell_cv_current(
+        cell_max=cell_max,
+        v_set=v_set,
+        i_prev=i_prev,
+        i_cc=i_cc,
+        dv_dt=dv_dt,
+        cell_abort_v=abort_v,
     )
-    return final
+    if cell_i is None:
+        # No cell voltages: pack-V table. During SOAK/CALIBRATE, stay conservative.
+        pack_cap = pack_volt_current_cap(battery_voltage)
+        if charge_mode in (ChargeMode.SOAK, ChargeMode.CALIBRATE) and battery_voltage >= PACK_KNEE_V:
+            target = min(SOAK_HOLD_CURRENT_A, i_cc, pack_cap, grid_limit)
+        else:
+            target = min(i_cc, pack_cap, grid_limit)
+        final = slew_current(i_prev, target)
+        log.debug(
+            "%s charge (pack-V): cap=%.0f A  pack_cap=%.0f A (V=%.2f V)  "
+            "grid=%.0f A  SoC=%.0f%%  → %.0f A",
+            charge_mode.value, i_cc, pack_cap, battery_voltage, grid_limit,
+            battery_soc, final,
+        )
+        return float(round(max(0.0, final)))
+
+    final = min(cell_i, grid_limit)
+    log.debug(
+        "%s charge (cell-CV): cap=%.0f A  cell_max=%s  v_set=%.2f V  "
+        "grid=%.0f A  i_prev=%.0f A  → %.0f A",
+        charge_mode.value, i_cc,
+        f"{cell_max:.3f}" if cell_max is not None else "n/a",
+        v_set, grid_limit, i_prev, final,
+    )
+    return float(round(max(0.0, final)))
 
 
 def determine_output_priority(state: State) -> OutputPriority:
@@ -691,9 +963,10 @@ def main() -> None:
     log.info("  Time periods  : %s",
              "  ".join(f"{p['name']} ({p['start']}–{p['end']})" for p in TIME_PERIODS))
     log.info(
-        "  Full charge   : bulk ≤%.0fA, sync %s–%s ≤%.0fA, ceiling %.1fV, timeout %d min",
-        BULK_MAX_CURRENT, SYNC_START_TIME, SYNC_DEADLINE, SYNC_MAX_CURRENT,
-        SYNC_VOLTAGE_CEILING, SYNC_TIMEOUT_MINUTES,
+        "  Full charge   : CC ≤%.0fA → SOAK cell %.2f V → CALIBRATE %.2f V "
+        "(abort %.2f / %.2f V)",
+        CC_MAX_CURRENT, CELL_SOAK_V, CELL_CALIBRATE_V,
+        CELL_MAX_ABORT_V, CELL_CALIBRATE_ABORT_V,
     )
     log.info("=" * 60)
 
@@ -713,7 +986,14 @@ def main() -> None:
     consecutive_failures: int                    = 0
     soc_fail_ticks:       int                    = 0
     charge_mode:          ChargeMode             = ChargeMode.NORMAL
-    sync_start_time:      datetime | None        = None
+    fc_state:             FullChargeState        = FullChargeState()
+    last_cell_max:        float | None           = None
+    last_cell_max_at:     datetime | None        = None
+    mosfet_resume_until:  datetime | None        = None
+    soc_payload:          dict | None            = None
+    bms:                  BmsView                = BmsView(fresh=False, abort=False, reason="missing")
+    pack_charge_a:        float                  = 0.0
+    load_power:           float                  = 0.0
 
     while True:
         daily_charge_current, target_soc, full_charge = load_targets_from_file(
@@ -746,6 +1026,7 @@ def main() -> None:
             battery_voltage = int(limited_data["0x0101"]) / 10.0
             battery_current = -_to_signed_16(int(limited_data["0x0102"])) / 10.0
             load_power      = int(limited_data["0x021c"]) + int(limited_data["0x0234"])
+            pack_charge_a   = max(0.0, battery_current)
 
             log.debug(
                 "Readings: V=%.1f V  I=%+.1f A  load=%.0f W",
@@ -767,7 +1048,8 @@ def main() -> None:
                     consecutive_failures, consecutive_failures * POLL_INTERVAL_S,
                 )
 
-        soc_pack, cell_min_fresh, soc_status = interpret_soc(fetch_soc())
+        soc_payload = fetch_soc()
+        soc_pack, cell_min_fresh, soc_status = interpret_soc(soc_payload)
         if soc_status == "ok" and soc_pack is not None:
             if soc_fail_ticks:
                 log.info("SoC feed recovered after %d tick(s)", soc_fail_ticks)
@@ -788,7 +1070,16 @@ def main() -> None:
                     soc_status, soc_fail_ticks, soc_fail_ticks * POLL_INTERVAL_S,
                 )
 
-        bms_fresh, bms_trip, bms_reason, bms_cell_max = interpret_bms_charge_abort(fetch_bms())
+        bms_payload = fetch_bms()
+        abort_v = (
+            CELL_CALIBRATE_ABORT_V
+            if charge_mode == ChargeMode.CALIBRATE
+            else CELL_MAX_ABORT_V
+        )
+        bms = parse_bms_view(bms_payload, cell_max_abort_v=abort_v)
+        bms_fresh, bms_trip, bms_reason, bms_cell_max = (
+            bms.fresh, bms.abort, bms.reason, bms.cell_max,
+        )
         if bms_fresh:
             if bms_trip and not bms_abort:
                 log.warning(
@@ -802,6 +1093,13 @@ def main() -> None:
                     bms_reason,
                     f"{bms_cell_max:.3f} V" if bms_cell_max is not None else "n/a",
                 )
+                if bms_abort_reason == "mosfet_off":
+                    mosfet_resume_until = datetime.now() + timedelta(
+                        seconds=MOSFET_RESUME_COOLDOWN_S,
+                    )
+                    last_charge_current = min(
+                        last_charge_current, MOSFET_RESUME_CURRENT_A,
+                    )
             bms_abort = bms_trip
             bms_abort_reason = bms_reason
             bms_cell_max_held = bms_cell_max
@@ -815,6 +1113,7 @@ def main() -> None:
 
         if bms_abort:
             bms_abort_ticks += 1
+            mosfet_resume_until = None
             if bms_abort_ticks % 12 == 0:
                 log.warning(
                     "BMS charge abort still active: %s  ticks=%d  cell_max=%s%s",
@@ -824,6 +1123,32 @@ def main() -> None:
                 )
         else:
             bms_abort_ticks = 0
+
+        now_tick = datetime.now()
+        dv_dt: float | None = None
+        if (
+            bms.fresh
+            and bms.cell_max is not None
+            and last_cell_max is not None
+            and last_cell_max_at is not None
+        ):
+            dt = (now_tick - last_cell_max_at).total_seconds()
+            if dt >= 1.0:
+                dv_dt = (bms.cell_max - last_cell_max) / dt
+        if bms.fresh and bms.cell_max is not None:
+            last_cell_max = bms.cell_max
+            last_cell_max_at = now_tick
+
+        mosfet_resume_hold = False
+        if mosfet_resume_until is not None:
+            still_hot = (
+                bms_cell_max_held is not None
+                and bms_cell_max_held >= MOSFET_RESUME_CELL_V
+            )
+            if now_tick < mosfet_resume_until or still_hot:
+                mosfet_resume_hold = True
+            else:
+                mosfet_resume_until = None
 
         # ── Manual override (UI-driven, time-limited) ────────────────
         override = load_manual_override()
@@ -893,70 +1218,72 @@ def main() -> None:
         # else: hold current state — don't transition on stale data
 
         # ── Full-charge phase progression ─────────────────────────────
-        # Only progresses with fresh data, in cheap period, while flag is set.
-        # NORMAL → BULK → SYNC → done (clears flag, returns to NORMAL).
-        # Skip while a manual override is active so the user can intervene
-        # without the full-charge state machine fighting back.
+        # NORMAL → CC → SOAK → CALIBRATE → done. Skip while override is active.
         if limited_data and full_charge and time_period == "cheap" and override is None:
-            now = datetime.now()
-            sync_start = _str_to_time(SYNC_START_TIME)
-            sync_deadline = _str_to_time(SYNC_DEADLINE)
-
-            if charge_mode == ChargeMode.NORMAL:
-                charge_mode = ChargeMode.BULK
+            prev_mode = charge_mode
+            fc_state = FullChargeState(
+                mode=charge_mode,
+                soak_started_at=fc_state.soak_started_at,
+                tail_ok_since=fc_state.tail_ok_since,
+            )
+            fc_state = advance_full_charge(
+                fc_state,
+                now=now_tick,
+                bms=bms,
+                pack_v=battery_voltage,
+                pack_charge_a=pack_charge_a,
+                soc_payload=soc_payload,
+                seconds_left=seconds_until_cheap_end(now_tick),
+            )
+            charge_mode = fc_state.mode
+            if charge_mode != prev_mode:
                 log.info(
-                    "Full charge: NORMAL → BULK (V=%.2f V, target_SoC=%.0f%%)",
-                    battery_voltage, target_soc,
+                    "Full charge: %s → %s  (cell_max=%s  cell_min=%s  delta=%s  V=%.2f V)",
+                    prev_mode.value, charge_mode.value,
+                    f"{bms.cell_max:.3f} V" if bms.cell_max is not None else "n/a",
+                    f"{bms.cell_min:.3f} V" if bms.cell_min is not None else "n/a",
+                    f"{bms.cell_delta * 1000:.0f} mV" if bms.cell_delta is not None else "n/a",
+                    battery_voltage,
                 )
-
-            if charge_mode == ChargeMode.BULK and sync_start <= now.time() <= sync_deadline:
-                charge_mode = ChargeMode.SYNC
-                sync_start_time = now
-                log.info(
-                    "Full charge: BULK → SYNC (time=%s, V=%.2f V)",
-                    now.strftime("%H:%M"), battery_voltage,
+            if charge_mode == ChargeMode.CALIBRATE and abort_v != CELL_CALIBRATE_ABORT_V:
+                bms = parse_bms_view(
+                    bms_payload, cell_max_abort_v=CELL_CALIBRATE_ABORT_V,
                 )
-
-            if charge_mode == ChargeMode.SYNC:
-                completion_reason: str | None = None
-                if estimated_soc is not None and estimated_soc >= 99.5:
-                    completion_reason = f"est SoC reached 100% (V={battery_voltage:.2f} V)"
-                elif battery_voltage >= SYNC_VOLTAGE_CEILING:
-                    completion_reason = (
-                        f"voltage {battery_voltage:.2f} V hit ceiling {SYNC_VOLTAGE_CEILING:.2f} V"
-                    )
-                elif now.time() > sync_deadline:
-                    completion_reason = f"deadline {SYNC_DEADLINE} reached"
-                elif sync_start_time is not None:
-                    elapsed_min = (now - sync_start_time).total_seconds() / 60.0
-                    if elapsed_min >= SYNC_TIMEOUT_MINUTES:
-                        completion_reason = f"timeout after {elapsed_min:.1f} min"
-
-                if completion_reason:
-                    log.info("Full charge: SYNC complete — %s", completion_reason)
-                    _complete_full_charge()
-                    charge_mode = ChargeMode.NORMAL
-                    sync_start_time = None
-                    full_charge = False  # reflect cleared flag for the rest of this tick
+                if bms.fresh:
+                    bms_abort = bms.abort
+                    bms_abort_reason = bms.reason
+                    bms_cell_max_held = bms.cell_max
+            if fc_state.complete:
+                log.info("Full charge complete — %s", fc_state.complete_reason)
+                _complete_full_charge()
+                charge_mode = ChargeMode.NORMAL
+                fc_state = FullChargeState()
+                full_charge = False
 
         elif limited_data and not full_charge and charge_mode != ChargeMode.NORMAL:
-            # Flag cleared externally (e.g., by daily_target rewrite) — reset local mode.
             log.info(
                 "Full charge flag cleared from targets — resetting charge_mode %s → NORMAL",
                 charge_mode.value,
             )
             charge_mode = ChargeMode.NORMAL
-            sync_start_time = None
+            fc_state = FullChargeState()
 
         elif limited_data and full_charge and time_period != "cheap" and charge_mode != ChargeMode.NORMAL:
-            # Cheap period ended mid-progression — abort cleanly without clearing the flag
-            # (last_full_charge stays unchanged, so the trigger logic can retry next eligible night).
-            log.warning(
-                "Full charge: cheap period ended (now=%s, mode=%s) — aborting and resetting to NORMAL",
-                datetime.now().strftime("%H:%M"), charge_mode.value,
-            )
+            if charge_mode in (ChargeMode.SOAK, ChargeMode.CALIBRATE):
+                log.info(
+                    "Full charge: cheap period ended in %s — counting as complete",
+                    charge_mode.value,
+                )
+                _complete_full_charge()
+                full_charge = False
+            else:
+                log.warning(
+                    "Full charge: cheap period ended (now=%s, mode=%s) — "
+                    "aborting without completing",
+                    datetime.now().strftime("%H:%M"), charge_mode.value,
+                )
             charge_mode = ChargeMode.NORMAL
-            sync_start_time = None
+            fc_state = FullChargeState()
 
         # ── Output priority ───────────────────────────────────────────
         desired_priority = determine_output_priority(current_state)
@@ -975,6 +1302,10 @@ def main() -> None:
                 estimated_soc, load_power, battery_voltage, daily_charge_current, current_state,
                 charge_mode=charge_mode,
                 bms_abort=bms_abort,
+                cell_max=bms.cell_max if bms.fresh else None,
+                dv_dt=dv_dt,
+                i_prev=last_charge_current,
+                mosfet_resume_hold=mosfet_resume_hold,
             )
             if last_charge_current != target_charge_current:
                 log.info(
