@@ -1373,34 +1373,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "SOC (%)"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#73BF69",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "SOC (%)"
-            },
-            "properties": [
-              {
-                "id": "custom.fillOpacity",
-                "value": 25
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Est. SOC (%)"
+              "options": "Est. pack"
             },
             "properties": [
               {
@@ -1409,13 +1382,21 @@
                   "fixedColor": "#FF9830",
                   "mode": "fixed"
                 }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 25
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 3
               }
             ]
           },
           {
             "matcher": {
               "id": "byName",
-              "options": "JK A SOC (%)"
+              "options": "Est. A"
             },
             "properties": [
               {
@@ -1430,7 +1411,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "JK B SOC (%)"
+              "options": "Est. B"
             },
             "properties": [
               {
@@ -1469,7 +1450,7 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"modbus\" and r._field == \"value\" and r.name == \"battery_soc\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, \"SOC (%)\": r._value}))",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"soc_estimate\" and r._field == \"value\" and r.bank == \"pack\" and r.name == \"soc\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, \"Est. pack\": r._value}))",
           "refId": "A"
         },
         {
@@ -1477,7 +1458,7 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"soc_estimate\" and r._field == \"value\" and r.bank == \"pack\" and r.name == \"soc\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, \"Est. SOC (%)\": r._value}))",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"soc_estimate\" and r._field == \"value\" and r.bank == \"a\" and r.name == \"soc_est\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, \"Est. A\": r._value}))",
           "refId": "B"
         },
         {
@@ -1485,19 +1466,11 @@
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jkbms\" and r._field == \"value\" and r.name == \"soc\" and r.bank == \"a\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, \"JK A SOC (%)\": r._value}))",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"soc_estimate\" and r._field == \"value\" and r.bank == \"b\" and r.name == \"soc_est\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, \"Est. B\": r._value}))",
           "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "srne-influxdb"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jkbms\" and r._field == \"value\" and r.name == \"soc\" and r.bank == \"b\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, \"JK B SOC (%)\": r._value}))",
-          "refId": "D"
         }
       ],
-      "title": "Battery SOC (PowMr vs estimate)",
+      "title": "Est. SoC (pack / A / B)",
       "type": "timeseries"
     },
     {
@@ -1658,6 +1631,180 @@
         "x": 0,
         "y": 29
       },
+      "id": 418,
+      "panels": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "fillOpacity": 15,
+                "gradientMode": "opacity",
+                "lineWidth": 2,
+                "lineInterpolation": "linear",
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "pointSize": 4,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "transparent",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "percent",
+              "min": 0,
+              "max": 100
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "JK pack"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#73BF69",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 25
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 3
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "JK A"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#5794F2",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "JK B"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#B877D9",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 30
+          },
+          "id": 419,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "influxdb",
+                "uid": "srne-influxdb"
+              },
+              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jkbms\" and r._field == \"value\")\n  |> filter(fn: (r) => r.name == \"remain_ah\" or r.name == \"nominal_ah\")\n  |> filter(fn: (r) => r.bank == \"a\" or r.bank == \"b\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"bank\", \"name\"], valueColumn: \"_value\")\n  |> map(fn: (r) => {\n      ra = if exists r.a_remain_ah then r.a_remain_ah else float(v: \"NaN\")\n      rb = if exists r.b_remain_ah then r.b_remain_ah else float(v: \"NaN\")\n      na = if exists r.a_nominal_ah then r.a_nominal_ah else float(v: \"NaN\")\n      nb = if exists r.b_nominal_ah then r.b_nominal_ah else float(v: \"NaN\")\n      den = na + nb\n      pack = if den > 0.0 then 100.0 * (ra + rb) / den else float(v: \"NaN\")\n      return {_time: r._time, \"JK pack\": pack}\n  })",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "influxdb",
+                "uid": "srne-influxdb"
+              },
+              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jkbms\" and r._field == \"value\" and r.name == \"soc\" and r.bank == \"a\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, \"JK A\": r._value}))",
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "influxdb",
+                "uid": "srne-influxdb"
+              },
+              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jkbms\" and r._field == \"value\" and r.name == \"soc\" and r.bank == \"b\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, \"JK B\": r._value}))",
+              "refId": "C"
+            }
+          ],
+          "title": "JK SoC (pack / A / B)",
+          "type": "timeseries"
+        }
+      ],
+      "title": "JK SoC (pack / A / B)",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
       "id": 16,
       "panels": [
         {
@@ -1751,7 +1898,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 30
+            "y": 31
           },
           "id": 12,
           "options": {
@@ -1897,7 +2044,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 30
+            "y": 31
           },
           "id": 13,
           "options": {
