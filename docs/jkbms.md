@@ -40,6 +40,8 @@ docker logs -f jkbms_db_writer
 
 Grafana: **JK-BMS Battery Banks** → `/d/solar-jkbms/jk-bms-battery-banks`
 
+Per-cell LFP notes (residuals, 17 Aug empty, house-peak IR, pending busbar torque): [`cell-health.md`](cell-health.md). Read-only report: `python jkbms_cell_health_report.py`.
+
 ## Design history
 
 The original multi-step design and parallel-stack notes lived in

@@ -1,0 +1,47 @@
+# Physics thresholds for LFP cell-health stats (this pack).
+# Used by the read-only report; not a writer config.
+# Keys are snake_case; HealthConfig in jkbms_cell_health_metrics.py matches 1:1.
+
+sample_interval_s: 30          # must match jkbms.yaml poll_interval_s
+
+# Rest / load / charge (current sign: + charge / − discharge)
+i_rest: 0.5                    # A; starting guess — report may raise after overnight histogram
+t_rest_s: 600                  # 10 min = 20 samples at 30 s
+i_chg: 2.0                     # A; I >= this → charge
+i_dsg: 2.0                     # A; I <= -this → discharge
+i_load: 5.0                    # A; |I| for ohmic residual
+i_step: 8.0                    # A; min |ΔI| for ΔV/ΔI proxy
+i_balance_skip: 0.03           # A; skip IR/class if |balance_current| > this OR balancing != 0
+
+# Charge-end (first VOLT_LIMITS reduction V>=55.2 → 80 A)
+soc_charge_end_enter: 98.0     # %
+soc_charge_end_exit: 96.0      # %
+v_pack_abs_start: 55.2         # V
+v_pack_abs_exit: 54.8          # V
+v_cell_charge_end: 3.50        # V
+i_cv_max: 20.0                 # A; I > this (SYNC 30 A) is charge, not charge_end
+
+# Discharge knee (unseen on this pack so far)
+v_cell_knee: 3.00              # V
+
+# Persistence / scores
+persist_window_s: 86400        # 24 h (report uses the selected range, which may be longer)
+n_load_min: 20
+n_charge_end_min: 10
+n_dcir_min: 3
+f_persist: 0.5
+
+# Residual "large" (classification)
+r_abs_v: 0.015                 # 15 mV
+r_mad_k: 3.0
+r_ir_v: 0.010                  # 10 mV extra |r_load_signed − r_rest|
+
+# DCIR quality
+dv_min_v: 0.001
+step_dt_min_s: 30
+step_dt_max_s: 90
+dtemp1_max_c: 5.0
+dcir_median_days: 7
+
+n_cells: 16
+gap_reset_s: 45
