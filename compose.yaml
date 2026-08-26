@@ -107,12 +107,15 @@ services:
     container_name: battery_controller
     restart: unless-stopped
     command: python battery_controller.py
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - CONFIG_PATH=/app/targets.json
       - MODBUS_API_PORT=${MODBUS_API_PORT:-5004}
       - BASIC_AUTH_USER=${USERNAME}
       - BASIC_AUTH_PASS=${PASSWORD}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - SOC_API_URL=${SOC_API_URL:-http://host.docker.internal:5006/soc}
     volumes:
       - .:/app
     depends_on:
@@ -203,7 +206,7 @@ services:
       influxdb:
         condition: service_healthy
 
-  # Shadow SoC estimator — writes measurement soc_estimate. Does not steer SBU/UTI.
+  # Pack SoC estimator — GET /soc for the controller; also writes soc_estimate.
   soc_estimator:
     image: srne-app:latest
     container_name: soc_estimator
@@ -216,6 +219,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - SOC_ESTIMATOR_CONFIG=/app/soc_estimator.yaml
       - SOC_ESTIMATOR_STATE=/app/soc_estimator_state.json
+      - SOC_ESTIMATOR_PORT=${SOC_ESTIMATOR_PORT:-5006}
       - JKBMS_API_URL=${JKBMS_API_URL:-http://127.0.0.1:5005/bms}
       - BATTERY_CURRENTS_URL=http://127.0.0.1:5004/battery_currents
       - INFLUX_URL=http://127.0.0.1:8086
@@ -229,6 +233,16 @@ services:
         condition: service_healthy
       influxdb:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://127.0.0.1:5006/health | grep -Eq '\"status\":\"ok\"' || exit 1",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
 
 volumes:
   grafana-data:

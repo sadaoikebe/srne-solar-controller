@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Shadow pack SoC estimator (observer only — does not steer the inverter).
+"""Pack SoC estimator.
+
+Serves GET /soc for battery_controller. Still writes measurement soc_estimate.
+Does not import battery_controller. Query-only HTTP to jkbms_api + modbus_api.
 
 Modes per bank
 --------------
@@ -17,8 +20,10 @@ Does not import battery_controller. Query-only HTTP to jkbms_api + modbus_api.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
+import threading
 import time
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta, timezone
@@ -355,6 +360,51 @@ def step(
     )
 
 
+def build_soc_payload(
+    result: TickResult,
+    samples: Mapping[str, BankSample],
+    cfg: EstimatorConfig,
+    *,
+    sampled_at: datetime,
+    poll_count: int,
+) -> Dict[str, Any]:
+    """In-memory GET /soc body. Caller adds age_s."""
+    mixed = len(set(result.modes.values())) > 1
+    pack_source = "mixed" if mixed else next(iter(result.modes.values()), "unknown")
+    banks_out: Dict[str, Any] = {}
+    cell_mins: List[float] = []
+    cell_maxs: List[float] = []
+    for b in cfg.banks:
+        st = result.states[b]
+        usable = float(cfg.usable_ah[b])
+        sample = samples.get(b) or BankSample(ok=False)
+        entry: Dict[str, Any] = {
+            "mode": result.modes[b],
+            "remain_est": round(st.remain_est, 3),
+            "soc_est": round(100.0 * st.remain_est / usable, 2) if usable else None,
+            "usable_ah": usable,
+            "cell_min": sample.cell_min,
+            "cell_max": sample.cell_max,
+        }
+        if sample.cell_min is not None:
+            cell_mins.append(sample.cell_min)
+        if sample.cell_max is not None:
+            cell_maxs.append(sample.cell_max)
+        banks_out[b] = entry
+    initialized = any(result.states[b].initialized for b in cfg.banks)
+    return {
+        "ok": initialized,
+        "soc_pack": round(result.soc_pack, 3) if result.soc_pack is not None else None,
+        "source": pack_source,
+        "cell_min": min(cell_mins) if cell_mins else None,
+        "cell_max": max(cell_maxs) if cell_maxs else None,
+        "sampled_at": sampled_at.isoformat(),
+        "poll_count": poll_count,
+        "write": result.write,
+        "banks": banks_out,
+    }
+
+
 # ── Persist ───────────────────────────────────────────────────────────────────
 
 
@@ -487,6 +537,60 @@ def build_points(
     return points
 
 
+# ── HTTP cache (GET /soc) ─────────────────────────────────────────────────────
+
+_snap_lock = threading.Lock()
+_snapshot: Optional[Dict[str, Any]] = None
+_snap_mono: Optional[float] = None
+
+
+def publish_soc(payload: Dict[str, Any]) -> None:
+    global _snapshot, _snap_mono
+    with _snap_lock:
+        _snapshot = payload
+        _snap_mono = time.monotonic()
+
+
+def soc_http_body() -> Optional[Dict[str, Any]]:
+    with _snap_lock:
+        if _snapshot is None or _snap_mono is None:
+            return None
+        body = copy.deepcopy(_snapshot)
+        body["age_s"] = round(time.monotonic() - _snap_mono, 1)
+        return body
+
+
+def _make_app():
+    from fastapi import FastAPI, HTTPException
+
+    app = FastAPI(title="SoC estimator", version="0.1.0")
+
+    @app.get("/health")
+    def health() -> Dict[str, Any]:
+        body = soc_http_body()
+        if body is None:
+            return {"status": "starting"}
+        return {
+            "status": "ok" if body.get("ok") else "starting",
+            "soc_pack": body.get("soc_pack"),
+            "age_s": body.get("age_s"),
+            "source": body.get("source"),
+            "poll_count": body.get("poll_count"),
+        }
+
+    @app.get("/soc")
+    def get_soc() -> Dict[str, Any]:
+        body = soc_http_body()
+        if body is None:
+            raise HTTPException(status_code=503, detail="No estimate yet")
+        return body
+
+    return app
+
+
+app = _make_app()
+
+
 def wait_until_next_tick(interval_s: int) -> datetime:
     now = datetime.now()
     seconds = now.second + now.microsecond / 1_000_000
@@ -522,9 +626,13 @@ def main() -> None:
 
     states, shares = load_state(persist, cfg)
     last_tick: Optional[datetime] = None
+    poll_count = 0
+    http_host = os.getenv("SOC_ESTIMATOR_HOST", "0.0.0.0")
+    http_port = int(os.getenv("SOC_ESTIMATOR_PORT", "5006"))
 
     log.info("=" * 60)
-    log.info("SoC estimator starting (observer only)")
+    log.info("SoC estimator starting")
+    log.info("  HTTP         : %s:%d  GET /soc /health", http_host, http_port)
     log.info("  BMS API      : %s", bms_url)
     log.info("  Currents     : %s", currents_url)
     log.info("  Influx       : %s  bucket=%s  meas=%s", influx_url, influx_bucket, MEASUREMENT)
@@ -532,6 +640,17 @@ def main() -> None:
     log.info("  Usable Ah    : %s", cfg.usable_ah)
     log.info("  Persist      : %s", persist)
     log.info("=" * 60)
+
+    import uvicorn
+
+    http_thread = threading.Thread(
+        target=lambda: uvicorn.run(
+            app, host=http_host, port=http_port, log_level="warning",
+        ),
+        name="soc-http",
+        daemon=True,
+    )
+    http_thread.start()
 
     tick_time = wait_until_next_tick(interval)
     while True:
@@ -552,6 +671,13 @@ def main() -> None:
         shares = result.shares
         states = result.states
         last_tick = now
+        poll_count += 1
+        if any(states[b].initialized for b in cfg.banks):
+            publish_soc(
+                build_soc_payload(
+                    result, samples, cfg, sampled_at=now, poll_count=poll_count,
+                )
+            )
 
         mode_s = " ".join(f"{b}={result.modes[b]}" for b in cfg.banks)
         if result.write:

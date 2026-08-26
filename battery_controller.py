@@ -1,7 +1,7 @@
 """Battery charge controller.
 
-Polls the inverter every POLL_INTERVAL_S seconds via modbus_api, computes
-the desired output priority and charge current, and pushes changes back.
+Polls the inverter every POLL_INTERVAL_S seconds via modbus_api (V / I / load
+and writes). Pack SoC comes from soc_estimator GET /soc — not PowMr 0x0100.
 
 Log levels
 ----------
@@ -31,27 +31,6 @@ log = get_logger("battery_controller")
 
 POLL_INTERVAL_S: int = 5
 
-# Battery bank parameters — update these if the pack is replaced.
-BATTERY_CAPACITY_AH: float = 520.0
-
-# Wh stored per 1% SoC.  Charging and discharging use different values because
-# the average bus voltage differs: ~52 V during charging vs ~49 V during discharge.
-BATTERY_WH_PER_SOC_CHARGING:    float = 270.0   # 520 Ah × 52 V / 100
-BATTERY_WH_PER_SOC_DISCHARGING: float = 255.0   # 520 Ah × 49 V / 100
-
-# Pre-computed: SoC (%) change per amp per polling tick.
-# Derivation: 100 % / (capacity_Ah × 3600 s/h) × POLL_INTERVAL_S
-_SOC_DELTA_PER_A_PER_TICK: float = (
-    100.0 / (BATTERY_CAPACITY_AH * 3600.0) * POLL_INTERVAL_S
-)
-
-# Inverter SoC is combined JK remain_ah. A 2% jump in 5 s is physically
-# impossible (~150 kW). Those spikes match one bank's SoC (usually B) when
-# the other bank drops out of the inverter's BMS link. Hold last good value
-# until the new reading is stable.
-SOC_JUMP_REJECT: float = 2.0          # %
-SOC_JUMP_HOLD_TICKS: int = 12         # 60 s at POLL_INTERVAL_S before accepting a step
-
 GRID_MAX_POWER_W: float    = 9000.0    # Maximum grid power budget (W)
 HYSTERESIS_SOC:   float    = 2.0       # SoC hysteresis band (%)
 CUTOFF_SOC:       float    = 9.0       # Emergency SoC floor (%)
@@ -63,6 +42,8 @@ SBU_TO_UTI_COOLDOWN_S: int = 30 * 60   # Minimum seconds between SBU→UTI switc
 FAIL_SAFE_TICKS:       int = 60        # After this many consecutive fetch failures
                                        # (60 × 5 s = 5 min), force SBU → UTI_STOPPED
                                        # to stop discharging the battery without monitoring.
+SOC_STALE_S:          float = 30.0     # /soc age_s above this → treat as missing
+CELL_MIN_FLOOR_V:     float = 3.05     # weakest-cell floor (matches estimator empty_cell_v)
 
 # ── Full-charge (LFP balancing / SoC sync) constants ─────────────────────────
 # Triggered by daily_target.py setting "full_charge: true" in targets.json
@@ -88,6 +69,7 @@ _API_BASE: str = f"http://modbus_api:{_API_PORT}"
 LIMITED_REGISTERS_URL:   str = f"{_API_BASE}/limited_registers"
 SET_CHARGE_CURRENT_URL:  str = f"{_API_BASE}/set_charge_current"
 SET_OUTPUT_PRIORITY_URL: str = f"{_API_BASE}/set_output_priority"
+SOC_API_URL: str = os.getenv("SOC_API_URL", "http://host.docker.internal:5006/soc")
 
 _AUTH_USER = os.getenv("BASIC_AUTH_USER")
 _AUTH_PASS = os.getenv("BASIC_AUTH_PASS")
@@ -178,6 +160,40 @@ def fetch_registers() -> dict | None:
     except requests.RequestException as e:
         log.warning("Register fetch failed: %s", e)
         return None
+
+
+def fetch_soc() -> dict | None:
+    """Fetch pack SoC from soc_estimator. Returns None on failure."""
+    try:
+        r = requests.get(SOC_API_URL, timeout=2)
+        r.raise_for_status()
+        data = r.json()
+        return data if isinstance(data, dict) else None
+    except requests.RequestException as e:
+        log.warning("SoC fetch failed: %s", e)
+        return None
+
+
+def interpret_soc(
+    payload: dict | None,
+    *,
+    max_age_s: float = SOC_STALE_S,
+) -> tuple[float | None, float | None, str]:
+    """Return (soc_pack, cell_min, status). status is ok | missing | stale | invalid."""
+    if not payload:
+        return None, None, "missing"
+    try:
+        age = payload.get("age_s")
+        soc = payload.get("soc_pack")
+        cell_min = payload.get("cell_min")
+        if soc is None:
+            return None, None, "invalid"
+        if age is not None and float(age) > max_age_s:
+            return None, None, "stale"
+        cmin = float(cell_min) if cell_min is not None else None
+        return float(soc), cmin, "ok"
+    except (TypeError, ValueError):
+        return None, None, "invalid"
 
 
 def set_charge_current(current: float) -> bool:
@@ -344,6 +360,7 @@ def determine_next_state(
     daily_charge_current: float,
     last_sbu_to_uti_time: datetime | None,
     full_charge_active: bool = False,
+    cell_min_v: float | None = None,
 ) -> tuple[State, float, datetime | None]:
     """Compute the next control state and any side-effects on targets.
 
@@ -467,6 +484,19 @@ def determine_next_state(
         # "unknown" time period — no transitions, hold current state
         log.debug("Time period 'unknown' — holding state %s", current_state.value)
 
+    if (
+        cell_min_v is not None
+        and cell_min_v <= CELL_MIN_FLOOR_V
+        and next_state == State.SBU
+    ):
+        log.info(
+            "Blocking SBU: cell_min %.3f V <= floor %.2f V → UTI_STOPPED",
+            cell_min_v, CELL_MIN_FLOOR_V,
+        )
+        next_state = State.UTI_STOPPED
+        if current_state == State.SBU:
+            new_last_sbu_to_uti_time = now
+
     if lower_charge_current:
         new_daily_charge_current = min(10.0, daily_charge_current)
         if new_daily_charge_current != daily_charge_current:
@@ -568,7 +598,7 @@ def main() -> None:
     log.info("=" * 60)
     log.info("Battery charge controller starting")
     log.info("  Poll interval : %d s", POLL_INTERVAL_S)
-    log.info("  Battery       : %.0f Ah", BATTERY_CAPACITY_AH)
+    log.info("  SoC API       : %s", SOC_API_URL)
     log.info("  Grid budget   : %.0f W", GRID_MAX_POWER_W)
     log.info("  SBU→UTI cooldown: %d s", SBU_TO_UTI_COOLDOWN_S)
     log.info("  API base      : %s", _API_BASE)
@@ -587,16 +617,15 @@ def main() -> None:
     daily_charge_current: float                  = 0.0
     target_soc:           float                  = 90.0
     last_output_priority: OutputPriority | None  = None
-    battery_soc:          float | None           = None
     estimated_soc:        float | None           = None
+    cell_min_v:           float | None           = None
     current_state:        State                  = State.UTI_STOPPED  # safe default until first data
     battery_voltage:      float                  = 52.0
     last_sbu_to_uti_time: datetime | None        = None
     consecutive_failures: int                    = 0
+    soc_fail_ticks:       int                    = 0
     charge_mode:          ChargeMode             = ChargeMode.NORMAL
     sync_start_time:      datetime | None        = None
-    soc_jump_candidate:   float | None           = None
-    soc_jump_ticks:       int                    = 0
 
     while True:
         daily_charge_current, target_soc, full_charge = load_targets_from_file(
@@ -607,7 +636,7 @@ def main() -> None:
 
         # Validate all required keys are present before parsing.
         if limited_data is not None:
-            _REQUIRED_KEYS = ("0x0100", "0x0101", "0x0102", "0x021c", "0x0234")
+            _REQUIRED_KEYS = ("0x0101", "0x0102", "0x021c", "0x0234")
             missing = [k for k in _REQUIRED_KEYS if k not in limited_data]
             if missing:
                 log.warning(
@@ -622,86 +651,18 @@ def main() -> None:
                 )
                 consecutive_failures = 0
 
-            last_battery_soc = battery_soc
-
-            # Register keys use modbus_api v2 hex-address schema:
-            #   0x0100 = battery SoC (%)
             #   0x0101 = battery voltage (×0.1 V)
             #   0x0102 = battery current (×0.1 A, signed; positive = charging)
             #   0x021c = load apparent power L1 (W)
             #   0x0234 = load apparent power L2 (W)
-            battery_soc     = float(int(limited_data["0x0100"]))
             battery_voltage = int(limited_data["0x0101"]) / 10.0
             battery_current = -_to_signed_16(int(limited_data["0x0102"])) / 10.0
             load_power      = int(limited_data["0x021c"]) + int(limited_data["0x0234"])
 
             log.debug(
-                "Readings: SoC=%d%%  V=%.1f V  I=%+.1f A  load=%.0f W",
-                int(battery_soc), battery_voltage, battery_current, load_power,
+                "Readings: V=%.1f V  I=%+.1f A  load=%.0f W",
+                battery_voltage, battery_current, load_power,
             )
-
-            # ── Sub-integer SoC estimator ──────────────────────────────────
-            # Impossible jumps: hold last good SoC. A real 1% move at 520 Ah
-            # takes minutes even at 150 A; ≥2% in one 5 s tick is a glitch
-            # (inverter briefly reporting one JK bank). Accept the new value
-            # only if it persists for SOC_JUMP_HOLD_TICKS (true 100% snaps).
-            if (
-                estimated_soc is not None
-                and last_battery_soc is not None
-                and abs(battery_soc - last_battery_soc) >= SOC_JUMP_REJECT
-            ):
-                if soc_jump_candidate == battery_soc:
-                    soc_jump_ticks += 1
-                else:
-                    soc_jump_candidate = battery_soc
-                    soc_jump_ticks = 1
-                    log.warning(
-                        "Ignoring impossible SoC jump %.0f%% → %.0f%% (holding %.0f%%)",
-                        last_battery_soc, battery_soc, last_battery_soc,
-                    )
-                if soc_jump_ticks < SOC_JUMP_HOLD_TICKS:
-                    battery_soc = last_battery_soc
-                else:
-                    log.warning(
-                        "SoC step accepted after %d ticks: %.0f%% → %.0f%%",
-                        soc_jump_ticks, last_battery_soc, battery_soc,
-                    )
-                    estimated_soc = battery_soc
-                    soc_jump_candidate = None
-                    soc_jump_ticks = 0
-            elif estimated_soc is None:
-                estimated_soc = battery_soc
-                soc_jump_candidate = None
-                soc_jump_ticks = 0
-            else:
-                if soc_jump_ticks:
-                    log.info(
-                        "SoC glitch ended after %d ticks (%.0fs): held %.0f%%, rejected %.0f%%",
-                        soc_jump_ticks, soc_jump_ticks * POLL_INTERVAL_S,
-                        last_battery_soc, soc_jump_candidate,
-                    )
-                soc_jump_candidate = None
-                soc_jump_ticks = 0
-                prev_est = estimated_soc
-                if last_battery_soc is not None:
-                    if battery_soc == last_battery_soc - 1:
-                        estimated_soc = battery_soc + 0.49
-                    elif battery_soc == last_battery_soc + 1:
-                        estimated_soc = battery_soc - 0.49
-
-                if (
-                    last_battery_soc is not None
-                    and last_battery_soc == battery_soc
-                    and battery_current != 0
-                ):
-                    delta = battery_current * _SOC_DELTA_PER_A_PER_TICK
-                    estimated_soc += delta
-                    estimated_soc = max(battery_soc - 0.5, min(battery_soc + 0.5, estimated_soc))
-
-                log.debug(
-                    "SoC estimator: hw=%d%%  est %.3f%% → %.3f%%  I=%+.1f A",
-                    int(battery_soc), prev_est, estimated_soc, battery_current,
-                )
 
         else:
             consecutive_failures += 1
@@ -710,14 +671,34 @@ def main() -> None:
                     "Register fetch failed — holding previous state "
                     "(V=%.1f V  last_SoC=%s%%)",
                     battery_voltage,
-                    f"{battery_soc:.0f}" if battery_soc is not None else "N/A",
+                    f"{estimated_soc:.1f}" if estimated_soc is not None else "N/A",
                 )
             elif consecutive_failures % 12 == 0:
                 log.warning(
                     "Register fetch still failing: %d consecutive attempts (%d s elapsed)",
                     consecutive_failures, consecutive_failures * POLL_INTERVAL_S,
                 )
-            last_battery_soc = battery_soc
+
+        soc_pack, cell_min_fresh, soc_status = interpret_soc(fetch_soc())
+        if soc_status == "ok" and soc_pack is not None:
+            if soc_fail_ticks:
+                log.info("SoC feed recovered after %d tick(s)", soc_fail_ticks)
+            estimated_soc = soc_pack
+            cell_min_v = cell_min_fresh
+            soc_fail_ticks = 0
+        else:
+            soc_fail_ticks += 1
+            if soc_fail_ticks == 1:
+                log.warning(
+                    "SoC feed %s — holding last est_SoC=%s%%",
+                    soc_status,
+                    f"{estimated_soc:.1f}" if estimated_soc is not None else "N/A",
+                )
+            elif soc_fail_ticks % 12 == 0:
+                log.warning(
+                    "SoC feed still %s: %d ticks (%d s)",
+                    soc_status, soc_fail_ticks, soc_fail_ticks * POLL_INTERVAL_S,
+                )
 
         # ── Manual override (UI-driven, time-limited) ────────────────
         override = load_manual_override()
@@ -733,6 +714,14 @@ def main() -> None:
 
             if override is not None:
                 current_state = override[0]
+            elif soc_fail_ticks >= FAIL_SAFE_TICKS and current_state == State.SBU:
+                log.warning(
+                    "Forcing SBU → UTI_STOPPED: no SoC feed for %d s — "
+                    "refusing to discharge without a gauge",
+                    soc_fail_ticks * POLL_INTERVAL_S,
+                )
+                current_state = State.UTI_STOPPED
+                last_sbu_to_uti_time = datetime.now()
             else:
                 current_state, daily_charge_current, last_sbu_to_uti_time = determine_next_state(
                     current_state,
@@ -743,6 +732,7 @@ def main() -> None:
                     daily_charge_current,
                     last_sbu_to_uti_time,
                     full_charge_active=full_charge,
+                    cell_min_v=cell_min_v if soc_fail_ticks == 0 else None,
                 )
 
             if current_state != prev_state:
@@ -804,8 +794,8 @@ def main() -> None:
 
             if charge_mode == ChargeMode.SYNC:
                 completion_reason: str | None = None
-                if battery_soc is not None and battery_soc >= 100:
-                    completion_reason = f"BMS SoC reached 100% (V={battery_voltage:.2f} V)"
+                if estimated_soc is not None and estimated_soc >= 99.5:
+                    completion_reason = f"est SoC reached 100% (V={battery_voltage:.2f} V)"
                 elif battery_voltage >= SYNC_VOLTAGE_CEILING:
                     completion_reason = (
                         f"voltage {battery_voltage:.2f} V hit ceiling {SYNC_VOLTAGE_CEILING:.2f} V"
@@ -855,9 +845,9 @@ def main() -> None:
                 last_output_priority = desired_priority
 
         # ── Charge current (only with fresh data) ─────────────────────
-        if limited_data:
+        if limited_data and estimated_soc is not None:
             target_charge_current = adjust_battery_charge(
-                battery_soc, load_power, battery_voltage, daily_charge_current, current_state,
+                estimated_soc, load_power, battery_voltage, daily_charge_current, current_state,
                 charge_mode=charge_mode,
             )
             if last_charge_current != target_charge_current:

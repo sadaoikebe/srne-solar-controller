@@ -36,6 +36,7 @@ graph TD
     USER -->|web form| API
 
     API --> BC[battery_controller<br/>every 5 s]
+    SE -->|GET /soc| BC
     API --> DW[db_writer<br/>every 30 s]
     API --> DT[daily_target<br/>22:59 cron]
     JB --> JW[jkbms_db_writer<br/>every 30 s]
@@ -83,6 +84,7 @@ INFLUX_TOKEN=...
 | `http://<pi>:5004/set_targets_form` | Charge targets web form |
 | `http://<pi>:5004/battery_currents` | Latched PowMr + Growatt battery I (no extra RS485) |
 | `http://<pi>:5005/health` | JK-BMS API health (local) |
+| `http://<pi>:5006/soc` | Pack SoC estimate (controller feed) |
 | `http://<pi>:3000` | Grafana |
 | `http://<pi>:8086` | InfluxDB |
 
@@ -93,7 +95,7 @@ INFLUX_TOKEN=...
 - **Close the JK-BMS phone app** while the Pi is polling — BLE is single-client.
 - Grafana: **JK-BMS Battery Banks** →  
   `http://<pi>:3000/d/solar-jkbms/jk-bms-battery-banks`
-- More detail: [`docs/jkbms.md`](docs/jkbms.md)
+- More detail: [`docs/jkbms.md`](docs/jkbms.md), SoC control: [`docs/soc-control.md`](docs/soc-control.md)
 
 ## Influx measurements
 
@@ -155,8 +157,9 @@ docker compose up -d
 | `jkbms_api.py` | JK-BMS BLE cache API (query-only, port 5005) |
 | `jkbms_client.py` | BLE read-only protocol helpers |
 | `jkbms_db_writer.py` | BMS snapshot → Influx (`jkbms`) every 30 s |
-| `soc_estimator.py` | Shadow pack SoC → Influx (`soc_estimate`); not used for control |
+| `soc_estimator.py` | Pack SoC → `GET /soc` + Influx (`soc_estimate`) |
 | `soc_estimator.yaml` | Usable Ah and estimator thresholds |
+| `docs/soc-control.md` | Estimator vs BMS-plugged backup (analysis) |
 | `jkbms.yaml` | BMS bank MAC / serial map |
 | `regmap.yaml` | Register address → name / unit / scale |
 | `targets.json` | Runtime state (planner ↔ controller) |

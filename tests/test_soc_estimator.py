@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import unittest
 
+from datetime import datetime, timezone
+
 from soc_estimator import (
     BankSample,
     BankState,
     EstimatorConfig,
     InverterSnapshot,
     ble_fresh,
+    build_soc_payload,
     cold_start_remain,
     inverter_fresh,
     remain_moving,
@@ -239,6 +242,31 @@ class TestStep(unittest.TestCase):
         }
         r = step(s0, samples, None, cfg=cfg, dt_s=10.0)
         self.assertAlmostEqual(r.soc_pack, 100.0 * (130.0 + 140.0) / (260.0 + 280.0), places=4)
+
+
+class TestSocPayload(unittest.TestCase):
+    def test_pack_cell_min_and_source(self):
+        cfg = _cfg()
+        s0 = {
+            "a": BankState(remain_est=130.0, last_remain_jk=66.0, initialized=True, mode="track"),
+            "b": BankState(remain_est=140.0, last_remain_jk=140.0, initialized=True, mode="track"),
+        }
+        samples = {
+            "a": _live(66.0, 0.2, cell_min=3.21, cell_max=3.33),
+            "b": _live(140.0, 0.2, nominal=280.0, cell_min=3.30, cell_max=3.35),
+        }
+        r = step(s0, samples, None, cfg=cfg, dt_s=10.0)
+        body = build_soc_payload(
+            r, samples, cfg,
+            sampled_at=datetime(2026, 8, 26, tzinfo=timezone.utc),
+            poll_count=3,
+        )
+        self.assertTrue(body["ok"])
+        self.assertAlmostEqual(body["cell_min"], 3.21)
+        self.assertAlmostEqual(body["cell_max"], 3.35)
+        self.assertIn("soc_pack", body)
+        self.assertEqual(body["banks"]["a"]["mode"], "track")
+        self.assertEqual(body["poll_count"], 3)
 
 
 if __name__ == "__main__":
