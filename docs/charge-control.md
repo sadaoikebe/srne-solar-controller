@@ -85,8 +85,8 @@ Query-only BLE. Do not write the BMS.
 | `bms_abort` / `charge_mosfet` | Abort flag / MOSFETs on |
 | `hot_cell` / `hot_bank` | Highest cell (1-based, a=0 b=1) |
 
-Grafana: JK-BMS and Graphs — **Full-charge night** (cells, currents, Phase,
-MOSFET) and **SoC estimator** (source A/B, SBU/UTI). State timelines, not
+Grafana: JK-BMS and Graphs — **Full-charge night** (cells, currents, Charge mode,
+MOSFET) and **SoC estimator** (source A/B, Output priority). State timelines, not
 box-and-arrow diagrams.
 
 ## Fail closed

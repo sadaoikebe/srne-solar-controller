@@ -40,7 +40,7 @@ Estimator tape: **A 260 + B 280 = 540 Ah**.
   20 % parks; 20 % at 06:51 keeps SBU. `daily_charge_current = 0` = **no grid
   fill** (PV can still charge). See [`charge-control.md`](charge-control.md).
 - Influx `charge_control` every 5 s (`charge_mode`, `controller_state`, `i_cmd`, …).
-- Grafana state timelines: Phase, SBU/UTI, estimator source A/B, MOSFET/abort.
+- Grafana state timelines: Charge mode, Output priority, estimator source A/B, MOSFET/abort.
   Full-charge night row (two-up) on JK-BMS and Graphs.
 
 ## What is not implemented (on purpose)
@@ -62,8 +62,8 @@ not a target-18 hold. 22:59 cron is skipped once.
 
 ## Next (ops, not code)
 
-1. Grafana: Full-charge night + SoC estimator + SBU/UTI bands look right.
-2. Cheap night **or** tonight’s full charge: watch Phase / cells / SBU/UTI.
+1. Grafana: Full-charge night + SoC estimator + Output priority bands look right.
+2. Cheap night **or** tonight’s full charge: watch Charge mode / cells / Output priority.
    Until RS485 is out, PowMr may still grid-switch on JK ~9–10 %.
 3. When Est. SoC is trusted overnight: unplug **only** JK RS485; set PowMr to
    voltage/user UV/OV deadman; keep Pi USB.

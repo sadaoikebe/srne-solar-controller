@@ -224,4 +224,4 @@ SoC. The system will not try to notice.
 | `jkbms_api.py` | Keep-alive BLE, `GET /bms` |
 
 Grafana Real-Time gauge is Est. SoC. Graphs overlays PowMr / estimate / JK A /
-JK B. State timelines: estimator source A/B, SBU/UTI, full-charge Phase.
+JK B. State timelines: estimator source A/B, Output priority, Charge mode.

@@ -2183,9 +2183,9 @@
       "options": {
         "alignValue": "center",
         "legend": {
-          "displayMode": "list",
+          "displayMode": "hidden",
           "placement": "bottom",
-          "showLegend": true
+          "showLegend": false
         },
         "mergeValues": true,
         "rowHeight": 0.9,
@@ -2194,7 +2194,7 @@
           "mode": "single",
           "sort": "none"
         },
-        "perPage": 20
+        "perPage": 0
       },
       "targets": [
         {
@@ -2206,7 +2206,7 @@
           "refId": "A"
         }
       ],
-      "title": "Phase",
+      "title": "Charge mode",
       "type": "state-timeline"
     },
     {
@@ -2298,9 +2298,9 @@
       "options": {
         "alignValue": "center",
         "legend": {
-          "displayMode": "list",
+          "displayMode": "hidden",
           "placement": "bottom",
-          "showLegend": true
+          "showLegend": false
         },
         "mergeValues": true,
         "rowHeight": 0.9,
@@ -2309,7 +2309,7 @@
           "mode": "single",
           "sort": "none"
         },
-        "perPage": 20
+        "perPage": 0
       },
       "targets": [
         {
@@ -2424,9 +2424,9 @@
       "options": {
         "alignValue": "center",
         "legend": {
-          "displayMode": "list",
+          "displayMode": "hidden",
           "placement": "bottom",
-          "showLegend": true
+          "showLegend": false
         },
         "mergeValues": true,
         "rowHeight": 0.9,
@@ -2435,7 +2435,7 @@
           "mode": "single",
           "sort": "none"
         },
-        "perPage": 20
+        "perPage": 0
       },
       "targets": [
         {
@@ -2515,9 +2515,9 @@
       "options": {
         "alignValue": "center",
         "legend": {
-          "displayMode": "list",
+          "displayMode": "hidden",
           "placement": "bottom",
-          "showLegend": true
+          "showLegend": false
         },
         "mergeValues": true,
         "rowHeight": 0.9,
@@ -2526,7 +2526,7 @@
           "mode": "single",
           "sort": "none"
         },
-        "perPage": 20
+        "perPage": 0
       },
       "targets": [
         {
@@ -2538,7 +2538,7 @@
           "refId": "A"
         }
       ],
-      "title": "SBU / UTI",
+      "title": "Output priority",
       "type": "state-timeline"
     }
   ],
@@ -2560,6 +2560,6 @@
   "timezone": "browser",
   "title": "JK-BMS Battery Banks",
   "uid": "solar-jkbms",
-  "version": 1,
+  "version": 5,
   "weekStart": ""
 }
