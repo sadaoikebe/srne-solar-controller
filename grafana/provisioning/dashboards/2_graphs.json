@@ -2792,6 +2792,140 @@
       ],
       "title": "MOSFET / abort",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 76
+      },
+      "id": 415,
+      "title": "SoC estimator",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "srne-influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "track",
+                  "color": "green"
+                },
+                "1": {
+                  "text": "coast_jk",
+                  "color": "orange"
+                },
+                "2": {
+                  "text": "coast_inverters",
+                  "color": "yellow"
+                },
+                "3": {
+                  "text": "held",
+                  "color": "purple"
+                },
+                "4": {
+                  "text": "full_anchor",
+                  "color": "blue"
+                },
+                "5": {
+                  "text": "empty_anchor",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "min": 0,
+          "max": 5
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 77
+      },
+      "id": 416,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"soc_estimate\" and r._field == \"value\" and r.name == \"soc_est\")\n  |> filter(fn: (r) => r.bank == \"a\" or r.bank == \"b\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      _value:\n        if r.source == \"track\" then 0.0\n        else if r.source == \"coast_jk\" then 1.0\n        else if r.source == \"coast_inverters\" then 2.0\n        else if r.source == \"held\" then 3.0\n        else if r.source == \"full_anchor\" then 4.0\n        else if r.source == \"empty_anchor\" then 5.0\n        else -1.0,\n      series: if r.bank == \"a\" then \"Bank A\" else \"Bank B\",\n  }))\n  |> group(columns: [\"series\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])",
+          "refId": "A"
+        }
+      ],
+      "title": "Source \u2014 Bank A / B",
+      "type": "timeseries"
     }
   ],
   "refresh": "",
