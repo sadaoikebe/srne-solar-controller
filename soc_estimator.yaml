@@ -1,4 +1,4 @@
-# Shadow SoC estimator (does not steer SBU/UTI).
+# Pack SoC estimator. GET /soc steers battery_controller.
 # Writes measurement soc_estimate. State file is gitignored.
 
 interval_s: 10

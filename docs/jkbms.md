@@ -8,7 +8,8 @@ Production path for dual JK-BMS packs over Bluetooth LE (read-only).
 |---------|------|
 | `jkbms_api` | Per-bank keep-alive BLE poll (~10 s), HTTP cache on port **5005** |
 | `jkbms_db_writer` | Writes measurement **`jkbms`** to Influx every 30 s |
-| `soc_estimator` | Pack SoC from JK `remain_ah` / current (+ inverter latch if BLE is down). `GET /soc` on port **5006**; writes **`soc_estimate`**. See [`docs/soc-control.md`](soc-control.md). |
+| `soc_estimator` | Pack SoC from JK `remain_ah` / current (+ inverter latch if BLE is down). `GET /soc` on port **5006**; writes **`soc_estimate`**. See [`soc-control.md`](soc-control.md). |
+| `battery_controller` | Also `GET /bms` (MOSFET, `cell_max`) for charge abort. See [`charge-control.md`](charge-control.md). |
 
 Both use image `srne-app:latest` and `network_mode: host` (BlueZ / D-Bus). Configured in `compose.yaml`.
 

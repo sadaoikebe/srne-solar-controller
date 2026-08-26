@@ -17,10 +17,12 @@ constants in `modbus_api.py`.
   control. Influx still records `jkbms` every **30 s**.
 - At 22:59 each night, fetches hourly JMA MSM GHI and computes how much
   overnight charge is needed so tomorrow's solar is not clipped.
-- During the cheap-power window, runs a state machine
-  (`UTI_CHARGING` ↔ `UTI_STOPPED` ↔ `SBU`) and tapers charge current as voltage
-  rises.
-- Writes to InfluxDB; Grafana dashboards under `grafana/provisioning/`.
+- During the cheap-power window, runs SBU / UTI from **Est. SoC** (`GET /soc`),
+  with a shrinking idle pad so an early hit on target parks instead of
+  overshooting overnight. Full-charge nights are CC → SOAK → CALIBRATE on
+  `max(cell)`. Grid charge current is separate from PV.
+- Writes to InfluxDB (`modbus`, `jkbms`, `soc_estimate`, `charge_control`);
+  Grafana dashboards under `grafana/provisioning/`.
 - Web form for target SoC / charge current / full-charge flag, plus a manual
   override that pins a state for 60 min.
 
@@ -43,6 +45,7 @@ graph TD
     JB --> SE[soc_estimator<br/>every 10 s]
     API -.->|latched battery I| SE
     BC -->|set current / priority| API
+    JB -->|GET /bms abort| BC
 
     JMA --> DT
     DT --> TJ[(targets.json)]
@@ -51,6 +54,7 @@ graph TD
     DW -->|measurement modbus| IF[(InfluxDB)]
     JW -->|measurement jkbms| IF
     SE -->|measurement soc_estimate| IF
+    BC -->|charge_control 5 s| IF
     IF --> DT
     IF --> GF[Grafana]
 ```
@@ -95,7 +99,7 @@ INFLUX_TOKEN=...
 - **Close the JK-BMS phone app** while the Pi is polling — BLE is single-client.
 - Grafana: **JK-BMS Battery Banks** →  
   `http://<pi>:3000/d/solar-jkbms/jk-bms-battery-banks`
-- More detail: [`docs/jkbms.md`](docs/jkbms.md), SoC control: [`docs/soc-control.md`](docs/soc-control.md)
+- Docs: [`docs/README.md`](docs/README.md) — start at [`docs/status.md`](docs/status.md).
 
 ## Influx measurements
 
@@ -104,7 +108,7 @@ INFLUX_TOKEN=...
 | `modbus` | Inverter registers via `db_writer` + `regmap.yaml` | 30 s |
 | `jkbms` | BMS snapshot via `jkbms_db_writer` | 30 s |
 | `soc_estimate` | Pack SoC (`soc_estimator` → `GET /soc`) | 10 s |
-| `charge_control` | Controller phase / I_cmd / cells (`battery_controller`) | 5 s |
+| `charge_control` | Phase, SBU/UTI, I_cmd, cells (`battery_controller`) | 5 s |
 
 Optional Growatt **raw** dump (`modbus_raw` in a separate bucket) is **off** by
 default. Set `INFLUX_BUCKET_RAW=solar_raw` in `.env` and recreate `db_writer`
@@ -160,7 +164,7 @@ docker compose up -d
 | `jkbms_db_writer.py` | BMS snapshot → Influx (`jkbms`) every 30 s |
 | `soc_estimator.py` | Pack SoC → `GET /soc` + Influx (`soc_estimate`) |
 | `soc_estimator.yaml` | Usable Ah and estimator thresholds |
-| `docs/soc-control.md` | Estimator vs BMS-plugged backup (analysis) |
+| `docs/` | Status, charge control, SoC estimator, JK ops |
 | `jkbms.yaml` | BMS bank MAC / serial map |
 | `regmap.yaml` | Register address → name / unit / scale |
 | `targets.json` | Runtime state (planner ↔ controller) |

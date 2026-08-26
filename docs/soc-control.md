@@ -1,14 +1,12 @@
 # Pack SoC control: estimator vs BMS-plugged backup
 
-This note records how pack SoC is meant to work after we stopped steering
-`battery_controller` from PowMr register `0x0100`. It is the analysis of the
-two operator modes, what is implemented now, and a backup path that is
-**designed but not built**.
+How pack SoC works after we stopped steering `battery_controller` from PowMr
+`0x0100`. Charge/SBU policy: [`charge-control.md`](charge-control.md). Snapshot:
+[`status.md`](status.md).
 
-Implemented today: the **estimator** path only (`GET /soc` from
-`soc_estimator`, controller fallback = hold then `UTI_STOPPED`). The
-PowMr-compat backup `/soc` is specified here so it can be added later as a
-**manual** switch. Do not auto-switch on BLE loss.
+Implemented: the **estimator** path only (`GET /soc`). The PowMr-compat backup
+`/soc` is specified here so it can be added later as a **manual** switch. Do
+not auto-switch on BLE loss.
 
 ## Hardware: two different cables
 
@@ -51,6 +49,7 @@ flowchart LR
 
   BC -->|"V I load; SBU / Icharge"| MA
   BC -->|"soc_pack, cell_min, age"| SE
+  BC -->|"cells MOSFET abort"| JA
   FLAG -.-> SE
   JA --> SE
   MA -->|/battery_currents| SE
@@ -76,8 +75,31 @@ Cold start: `remain_est = remain_jk + max(0, usable − nominal_jk)`. Persist
 `soc_estimator_state.json` (gitignored).
 
 `GET /soc` (port **5006**) returns `soc_pack`, `source`, `cell_min` /
-`cell_max`, per-bank remain/mode, `age_s`. Influx measurement `soc_estimate`
-is the same numbers for Grafana; it is **not** on the control path.
+`cell_max`, per-bank remain/mode, `age_s`. Influx `soc_estimate` is the same
+numbers (tag `source` per bank). The controller **does** steer from `/soc`.
+
+Per-bank mode each 10 s tick (pack `source` is that mode, or `mixed` if A and
+B disagree — Grafana graphs A/B only):
+
+```mermaid
+stateDiagram-v2
+    [*] --> track: cold start
+    track --> track: remain_ah moves or rest
+    track --> coast_jk: remain stuck, real I
+    coast_jk --> track: remain moves again
+    track --> full_anchor: cell_max ≥ 3.59 V
+    coast_jk --> full_anchor: cell_max ≥ 3.59 V
+    track --> empty_anchor: cell_min ≤ 3.05 V
+    coast_jk --> empty_anchor: cell_min ≤ 3.05 V
+    track --> held: this BLE down, other live
+    coast_jk --> held: this BLE down, other live
+    held --> coast_inverters: both BLE down, inverter I
+    held --> track: BLE back relock
+    coast_inverters --> track: BLE back relock
+```
+
+Anchors only on a **live** BLE sample. Both BLE down and no inverter I: `held`,
+no Influx write, `/soc` ages out.
 
 `/limited_registers` does **not** drive `/soc` in Track/Coast JK. It still
 runs every 5 s because the controller needs V, I, load, and writes. The
@@ -98,9 +120,9 @@ with growing `age_s`.
 
 1. Modbus: V, I, load (no longer requires `0x0100`).
 2. `GET /soc` → `soc_pack`, `cell_min`.
-3. `determine_next_state` vs `target_soc`, `CUTOFF_SOC=9`, `sbu_fixed`
-   49.4 / 51.6 V, `cell_min ≤ 3.05 V`.
-4. Write SBU/UTI and charge current.
+3. `GET /bms` → abort if MOSFET off or `cell_max ≥ 3.55 V`.
+4. Cheap / `sbu_fixed` / full-charge — [`charge-control.md`](charge-control.md).
+5. Write SBU/UTI, grid current, Influx `charge_control`.
 
 Removed from the controller (on purpose):
 
@@ -198,8 +220,8 @@ SoC. The system will not try to notice.
 | `soc_estimator.py` | Tick + `GET /soc` + Influx `soc_estimate` |
 | `soc_estimator.yaml` | Usable Ah, stale windows, persist path |
 | `modbus_api.py` `GET /battery_currents` | Latch from existing polls; no extra RS485 |
-| `battery_controller.py` | `/soc` + Modbus V/I/load/writes |
+| `battery_controller.py` | `/soc` + `/bms` abort + Modbus writes + `charge_control` |
 | `jkbms_api.py` | Keep-alive BLE, `GET /bms` |
 
-Grafana Real-Time gauge and the Real-Time SoC graph are Est. SoC. Graphs
-dashboard still overlays PowMr / estimate / JK A / JK B for comparison.
+Grafana Real-Time gauge is Est. SoC. Graphs overlays PowMr / estimate / JK A /
+JK B. State timelines: estimator source A/B, SBU/UTI, full-charge Phase.
