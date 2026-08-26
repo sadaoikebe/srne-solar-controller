@@ -40,6 +40,8 @@ POLL_INTERVAL_S: int = 5
 
 GRID_MAX_POWER_W: float    = 9000.0    # Maximum grid power budget (W)
 HYSTERESIS_SOC:   float    = 2.0       # SoC hysteresis band (%)
+IDLE_SOC_PCT_PER_H: float  = 0.25      # Cheap SBU pad: overnight DC idle (% / h)
+NEAR_TARGET_SOC:  float    = 0.4       # Near-target band (%)
 CUTOFF_SOC:       float    = 9.0       # Emergency SoC floor (%)
 SBU_RETURN_MIN_SOC: float  = 13.0      # Minimum SoC (%) to (re)enter SBU during sbu_fixed.
                                        # Set above CUTOFF_SOC so a rainy-day rebound to
@@ -546,6 +548,17 @@ def seconds_until_cheap_end(now: datetime | None = None) -> float:
     return max(0.0, (end_dt - now).total_seconds())
 
 
+def cheap_sbu_exit_soc(
+    target_soc: float,
+    seconds_left: float,
+    *,
+    idle_pct_per_h: float = IDLE_SOC_PCT_PER_H,
+) -> float:
+    """SoC at which cheap-period SBU should stop so idle leak lands on target at 06:58."""
+    hours = max(0.0, seconds_left) / 3600.0
+    return target_soc + idle_pct_per_h * hours
+
+
 def pack_volt_current_cap(battery_voltage: float) -> float:
     """Dumb pack-V current cap. Used when cell voltages are missing."""
     for volt_threshold, limit in PACK_VOLT_LIMITS:
@@ -876,6 +889,7 @@ def determine_next_state(
     last_sbu_to_uti_time: datetime | None,
     full_charge_active: bool = False,
     cell_min_v: float | None = None,
+    seconds_left_cheap: float | None = None,
 ) -> tuple[State, float, datetime | None]:
     """Compute the next control state and any side-effects on targets.
 
@@ -951,48 +965,57 @@ def determine_next_state(
                 next_state = State.UTI_CHARGING
             return next_state, daily_charge_current, last_sbu_to_uti_time
 
+        if seconds_left_cheap is None:
+            seconds_left_cheap = seconds_until_cheap_end(now)
+        sbu_exit = cheap_sbu_exit_soc(target_soc, seconds_left_cheap)
+        can_buy = daily_charge_current > 0
+
         if current_state == State.UTI_CHARGING:
-            if estimated_soc > target_soc + HYSTERESIS_SOC:
+            if not can_buy:
+                next_state = State.UTI_STOPPED
+                lower_charge_current = True
+                log.debug("Cheap: daily charge 0 A — UTI_CHARGING → UTI_STOPPED")
+            elif estimated_soc > sbu_exit + NEAR_TARGET_SOC:
                 next_state = State.SBU
                 lower_charge_current = True
                 log.debug(
-                    "Cheap: SoC %.1f%% > target+hysteresis %.0f%% → SBU + lower current",
-                    estimated_soc, target_soc + HYSTERESIS_SOC,
+                    "Cheap: SoC %.1f%% > SBU-exit+band %.1f%% → SBU + lower current",
+                    estimated_soc, sbu_exit + NEAR_TARGET_SOC,
                 )
-            elif estimated_soc > target_soc + 0.4:
+            elif estimated_soc > target_soc + NEAR_TARGET_SOC:
                 next_state = State.UTI_STOPPED
                 lower_charge_current = True
                 log.debug(
-                    "Cheap: SoC %.1f%% > target+0.4 %.1f%% → UTI_STOPPED + lower current",
-                    estimated_soc, target_soc + 0.4,
+                    "Cheap: SoC %.1f%% > target+band %.1f%% → UTI_STOPPED + lower current",
+                    estimated_soc, target_soc + NEAR_TARGET_SOC,
                 )
 
         elif current_state == State.UTI_STOPPED:
-            if estimated_soc > target_soc + HYSTERESIS_SOC:
-                next_state = State.SBU
-                log.debug(
-                    "Cheap: SoC %.1f%% > target+hysteresis %.0f%% → SBU",
-                    estimated_soc, target_soc + HYSTERESIS_SOC,
-                )
-            elif estimated_soc < target_soc - 0.4:
+            if can_buy and estimated_soc < target_soc - NEAR_TARGET_SOC:
                 next_state = State.UTI_CHARGING
                 log.debug(
-                    "Cheap: SoC %.1f%% < target-0.4 %.1f%% → UTI_CHARGING",
-                    estimated_soc, target_soc - 0.4,
+                    "Cheap: SoC %.1f%% < target-band %.1f%% → UTI_CHARGING",
+                    estimated_soc, target_soc - NEAR_TARGET_SOC,
+                )
+            elif estimated_soc > sbu_exit + HYSTERESIS_SOC:
+                next_state = State.SBU
+                log.debug(
+                    "Cheap: SoC %.1f%% > SBU-exit+hysteresis %.1f%% → SBU",
+                    estimated_soc, sbu_exit + HYSTERESIS_SOC,
                 )
 
         else:  # State.SBU
-            if estimated_soc < target_soc - 0.4:
+            if can_buy and estimated_soc < target_soc - NEAR_TARGET_SOC:
                 next_state = State.UTI_CHARGING
                 log.debug(
-                    "Cheap: SoC %.1f%% < target-0.4 %.1f%% → UTI_CHARGING",
-                    estimated_soc, target_soc - 0.4,
+                    "Cheap: SoC %.1f%% < target-band %.1f%% → UTI_CHARGING",
+                    estimated_soc, target_soc - NEAR_TARGET_SOC,
                 )
-            elif estimated_soc < target_soc + 0.4:
+            elif estimated_soc < sbu_exit + NEAR_TARGET_SOC:
                 next_state = State.UTI_STOPPED
                 log.debug(
-                    "Cheap: SoC %.1f%% near target %.0f%% → UTI_STOPPED",
-                    estimated_soc, target_soc,
+                    "Cheap: SoC %.1f%% < SBU-exit+band %.1f%% (pad to target %.0f%%) → UTI_STOPPED",
+                    estimated_soc, sbu_exit + NEAR_TARGET_SOC, target_soc,
                 )
 
     else:

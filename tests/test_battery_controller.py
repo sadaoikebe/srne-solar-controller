@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 
 from battery_controller import (
     CALIBRATE_RESERVE_S,
+    IDLE_SOC_PCT_PER_H,
     CELL_CALIBRATE_ABORT_V,
     CELL_CALIBRATE_V,
     CELL_KNEE_V,
@@ -25,6 +26,7 @@ from battery_controller import (
     banks_at_full,
     build_charge_control_records,
     cell_cv_current,
+    cheap_sbu_exit_soc,
     determine_next_state,
     format_charge_tick,
     hot_cell_label,
@@ -134,6 +136,71 @@ class TestCellMinFloor(unittest.TestCase):
             cell_min_v=3.20,
         )
         self.assertEqual(state, State.SBU)
+
+
+class TestCheapSbuPad(unittest.TestCase):
+    def _next(self, state, soc, *, seconds_left, daily=0.0, target=18.0):
+        nxt, _, _ = determine_next_state(
+            state,
+            estimated_soc=soc,
+            target_soc=target,
+            battery_voltage=52.0,
+            time_period="cheap",
+            daily_charge_current=daily,
+            last_sbu_to_uti_time=None,
+            seconds_left_cheap=seconds_left,
+        )
+        return nxt
+
+    def test_exit_soc_at_2312_is_about_20(self):
+        # 23:12 → 06:58 = 7 h 46 min
+        left = 7 * 3600 + 46 * 60
+        exit_soc = cheap_sbu_exit_soc(18.0, left)
+        self.assertAlmostEqual(exit_soc, 18.0 + IDLE_SOC_PCT_PER_H * left / 3600.0)
+        self.assertAlmostEqual(exit_soc, 19.94, places=2)
+
+    def test_sbu_at_20pct_2312_stops(self):
+        left = 7 * 3600 + 46 * 60
+        self.assertEqual(
+            self._next(State.SBU, 20.0, seconds_left=left),
+            State.UTI_STOPPED,
+        )
+
+    def test_sbu_at_20pct_0651_stays_sbu(self):
+        left = 7 * 60
+        self.assertEqual(
+            self._next(State.SBU, 20.0, seconds_left=left),
+            State.SBU,
+        )
+
+    def test_sbu_at_18pct_0651_stops(self):
+        left = 7 * 60
+        self.assertEqual(
+            self._next(State.SBU, 18.2, seconds_left=left),
+            State.UTI_STOPPED,
+        )
+
+    def test_daily_zero_never_charges(self):
+        left = 8 * 3600
+        self.assertEqual(
+            self._next(State.SBU, 16.0, seconds_left=left, daily=0.0),
+            State.UTI_STOPPED,
+        )
+        self.assertEqual(
+            self._next(State.UTI_STOPPED, 16.0, seconds_left=left, daily=0.0),
+            State.UTI_STOPPED,
+        )
+        self.assertEqual(
+            self._next(State.UTI_CHARGING, 16.0, seconds_left=left, daily=0.0),
+            State.UTI_STOPPED,
+        )
+
+    def test_daily_nonzero_charges_when_below_target(self):
+        left = 8 * 3600
+        self.assertEqual(
+            self._next(State.SBU, 16.0, seconds_left=left, daily=40.0),
+            State.UTI_CHARGING,
+        )
 
 
 class TestInterpretBmsChargeAbort(unittest.TestCase):
