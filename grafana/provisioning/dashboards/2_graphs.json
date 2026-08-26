@@ -2553,38 +2553,43 @@
             "mode": "palette-classic"
           },
           "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "lineInterpolation": "linear",
-            "lineWidth": 2,
-            "pointSize": 4,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
+            "fillOpacity": 85,
             "hideFrom": {
               "legend": false,
               "tooltip": false,
               "viz": false
             },
             "insertNulls": false,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "lineWidth": 0,
+            "spanNulls": false
           },
-          "mappings": [],
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "NORMAL",
+                  "color": "#73BF69",
+                  "index": 0
+                },
+                "1": {
+                  "text": "CC",
+                  "color": "#5794F2",
+                  "index": 1
+                },
+                "2": {
+                  "text": "SOAK",
+                  "color": "#FF9830",
+                  "index": 2
+                },
+                "3": {
+                  "text": "CALIBRATE",
+                  "color": "#B877D9",
+                  "index": 3
+                }
+              }
+            }
+          ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -2593,55 +2598,9 @@
                 "value": null
               }
             ]
-          },
-          "unit": "short",
-          "min": 0,
-          "max": 3
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Phase"
-            },
-            "properties": [
-              {
-                "id": "custom.lineWidth",
-                "value": 3
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Phase"
-            },
-            "properties": [
-              {
-                "id": "mappings",
-                "value": [
-                  {
-                    "type": "value",
-                    "options": {
-                      "0": {
-                        "text": "NORMAL"
-                      },
-                      "1": {
-                        "text": "CC"
-                      },
-                      "2": {
-                        "text": "SOAK"
-                      },
-                      "3": {
-                        "text": "CALIBRATE"
-                      }
-                    }
-                  }
-                ]
-              }
-            ]
           }
-        ]
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -2651,18 +2610,20 @@
       },
       "id": 413,
       "options": {
+        "alignValue": "center",
         "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
+        "mergeValues": true,
+        "rowHeight": 0.9,
+        "showValue": "auto",
         "tooltip": {
-          "mode": "multi",
+          "mode": "single",
           "sort": "none"
-        }
+        },
+        "perPage": 20
       },
       "targets": [
         {
@@ -2675,7 +2636,7 @@
         }
       ],
       "title": "Phase",
-      "type": "timeseries"
+      "type": "state-timeline"
     },
     {
       "datasource": {
@@ -2688,38 +2649,33 @@
             "mode": "palette-classic"
           },
           "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "lineInterpolation": "linear",
-            "lineWidth": 2,
-            "pointSize": 4,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
+            "fillOpacity": 85,
             "hideFrom": {
               "legend": false,
               "tooltip": false,
               "viz": false
             },
             "insertNulls": false,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "lineWidth": 0,
+            "spanNulls": false
           },
-          "mappings": [],
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "off",
+                  "color": "#F2495C",
+                  "index": 0
+                },
+                "1": {
+                  "text": "on",
+                  "color": "#73BF69",
+                  "index": 1
+                }
+              }
+            }
+          ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -2728,10 +2684,7 @@
                 "value": null
               }
             ]
-          },
-          "unit": "short",
-          "min": 0,
-          "max": 1
+          }
         },
         "overrides": [
           {
@@ -2741,11 +2694,24 @@
             },
             "properties": [
               {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#F2495C",
-                  "mode": "fixed"
-                }
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "ok",
+                        "color": "#73BF69",
+                        "index": 0
+                      },
+                      "1": {
+                        "text": "abort",
+                        "color": "#F2495C",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
               }
             ]
           }
@@ -2759,18 +2725,20 @@
       },
       "id": 414,
       "options": {
+        "alignValue": "center",
         "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
+        "mergeValues": true,
+        "rowHeight": 0.9,
+        "showValue": "auto",
         "tooltip": {
-          "mode": "multi",
+          "mode": "single",
           "sort": "none"
-        }
+        },
+        "perPage": 20
       },
       "targets": [
         {
@@ -2791,7 +2759,7 @@
         }
       ],
       "title": "MOSFET / abort",
-      "type": "timeseries"
+      "type": "state-timeline"
     },
     {
       "collapsed": false,
@@ -2816,36 +2784,15 @@
             "mode": "palette-classic"
           },
           "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "lineInterpolation": "stepAfter",
-            "lineWidth": 2,
-            "pointSize": 4,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
+            "fillOpacity": 85,
             "hideFrom": {
               "legend": false,
               "tooltip": false,
               "viz": false
             },
             "insertNulls": false,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "lineWidth": 0,
+            "spanNulls": false
           },
           "mappings": [
             {
@@ -2853,27 +2800,33 @@
               "options": {
                 "0": {
                   "text": "track",
-                  "color": "green"
+                  "color": "#73BF69",
+                  "index": 0
                 },
                 "1": {
                   "text": "coast_jk",
-                  "color": "orange"
+                  "color": "#FF9830",
+                  "index": 1
                 },
                 "2": {
                   "text": "coast_inverters",
-                  "color": "yellow"
+                  "color": "#FADE2A",
+                  "index": 2
                 },
                 "3": {
                   "text": "held",
-                  "color": "purple"
+                  "color": "#8AB8FF",
+                  "index": 3
                 },
                 "4": {
                   "text": "full_anchor",
-                  "color": "blue"
+                  "color": "#B877D9",
+                  "index": 4
                 },
                 "5": {
                   "text": "empty_anchor",
-                  "color": "red"
+                  "color": "#F2495C",
+                  "index": 5
                 }
               }
             }
@@ -2886,10 +2839,7 @@
                 "value": null
               }
             ]
-          },
-          "unit": "short",
-          "min": 0,
-          "max": 5
+          }
         },
         "overrides": []
       },
@@ -2901,18 +2851,20 @@
       },
       "id": 416,
       "options": {
+        "alignValue": "center",
         "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
+        "mergeValues": true,
+        "rowHeight": 0.9,
+        "showValue": "auto",
         "tooltip": {
-          "mode": "multi",
+          "mode": "single",
           "sort": "none"
-        }
+        },
+        "perPage": 20
       },
       "targets": [
         {
@@ -2925,7 +2877,7 @@
         }
       ],
       "title": "Source \u2014 Bank A / B",
-      "type": "timeseries"
+      "type": "state-timeline"
     },
     {
       "datasource": {
@@ -2938,36 +2890,15 @@
             "mode": "palette-classic"
           },
           "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "lineInterpolation": "stepAfter",
-            "lineWidth": 2,
-            "pointSize": 4,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
+            "fillOpacity": 85,
             "hideFrom": {
               "legend": false,
               "tooltip": false,
               "viz": false
             },
             "insertNulls": false,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "lineWidth": 0,
+            "spanNulls": false
           },
           "mappings": [
             {
@@ -2975,15 +2906,18 @@
               "options": {
                 "0": {
                   "text": "UTI_STOPPED",
-                  "color": "yellow"
+                  "color": "#FADE2A",
+                  "index": 0
                 },
                 "1": {
                   "text": "UTI_CHARGING",
-                  "color": "orange"
+                  "color": "#FF9830",
+                  "index": 1
                 },
                 "2": {
                   "text": "SBU",
-                  "color": "green"
+                  "color": "#73BF69",
+                  "index": 2
                 }
               }
             }
@@ -2996,10 +2930,7 @@
                 "value": null
               }
             ]
-          },
-          "unit": "short",
-          "min": 0,
-          "max": 2
+          }
         },
         "overrides": []
       },
@@ -3011,18 +2942,20 @@
       },
       "id": 417,
       "options": {
+        "alignValue": "center",
         "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
+        "mergeValues": true,
+        "rowHeight": 0.9,
+        "showValue": "auto",
         "tooltip": {
-          "mode": "multi",
+          "mode": "single",
           "sort": "none"
-        }
+        },
+        "perPage": 20
       },
       "targets": [
         {
@@ -3035,7 +2968,7 @@
         }
       ],
       "title": "SBU / UTI",
-      "type": "timeseries"
+      "type": "state-timeline"
     }
   ],
   "refresh": "",
