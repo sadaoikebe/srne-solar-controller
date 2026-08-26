@@ -2,14 +2,16 @@
 
 Polls the inverter every POLL_INTERVAL_S seconds via modbus_api (V / I / load
 and writes). Pack SoC comes from soc_estimator GET /soc — not PowMr 0x0100.
+Charge abort (I = 0) comes from jkbms_api GET /bms: either charge MOSFET off
+or cell_max >= CELL_MAX_ABORT_V. BULK/SYNC are unchanged.
 
 Log levels
 ----------
   DEBUG  — raw register values, SoC estimator steps, grid-limit arithmetic,
            charge-taper table lookups, per-tick loop heartbeat
   INFO   — state transitions, charge-current changes, priority changes,
-           config reloads, startup/shutdown
-  WARNING — fetch failures, config-file errors (non-fatal)
+           config reloads, startup/shutdown, BMS abort clear
+  WARNING — fetch failures, config-file errors (non-fatal), BMS charge abort
   ERROR  — currently unused (caller should watch WARNING closely)
 """
 from __future__ import annotations
@@ -44,6 +46,8 @@ FAIL_SAFE_TICKS:       int = 60        # After this many consecutive fetch failu
                                        # to stop discharging the battery without monitoring.
 SOC_STALE_S:          float = 30.0     # /soc age_s above this → treat as missing
 CELL_MIN_FLOOR_V:     float = 3.05     # weakest-cell floor (matches estimator empty_cell_v)
+BMS_STALE_S:          float = 25.0     # /bms bank age_s above this → bank not used
+CELL_MAX_ABORT_V:     float = 3.55     # JK OVPR; I = 0 at or above this cell voltage
 
 # ── Full-charge (LFP balancing / SoC sync) constants ─────────────────────────
 # Triggered by daily_target.py setting "full_charge: true" in targets.json
@@ -70,6 +74,7 @@ LIMITED_REGISTERS_URL:   str = f"{_API_BASE}/limited_registers"
 SET_CHARGE_CURRENT_URL:  str = f"{_API_BASE}/set_charge_current"
 SET_OUTPUT_PRIORITY_URL: str = f"{_API_BASE}/set_output_priority"
 SOC_API_URL: str = os.getenv("SOC_API_URL", "http://host.docker.internal:5006/soc")
+BMS_API_URL: str = os.getenv("BMS_API_URL", "http://host.docker.internal:5005/bms")
 
 _AUTH_USER = os.getenv("BASIC_AUTH_USER")
 _AUTH_PASS = os.getenv("BASIC_AUTH_PASS")
@@ -194,6 +199,79 @@ def interpret_soc(
         return float(soc), cmin, "ok"
     except (TypeError, ValueError):
         return None, None, "invalid"
+
+
+def fetch_bms() -> dict | None:
+    """Fetch JK snapshot from jkbms_api. Returns None on failure."""
+    try:
+        r = requests.get(BMS_API_URL, timeout=2)
+        r.raise_for_status()
+        data = r.json()
+        return data if isinstance(data, dict) else None
+    except requests.RequestException as e:
+        log.warning("BMS fetch failed: %s", e)
+        return None
+
+
+def _charge_mosfet_off(value: object) -> bool:
+    """True only for an explicit off reading (bool False or 0). Missing is not off."""
+    if value is False:
+        return True
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and value == 0:
+        return True
+    return False
+
+
+def interpret_bms_charge_abort(
+    payload: dict | None,
+    *,
+    max_age_s: float = BMS_STALE_S,
+    cell_max_abort_v: float = CELL_MAX_ABORT_V,
+) -> tuple[bool, bool, str, float | None]:
+    """Return (fresh, abort, reason, cell_max).
+
+    abort is True only when a live bank shows charge MOSFET off or
+    cell_max >= cell_max_abort_v. Missing/stale is not abort — the caller
+    latches the last abort so a trip stays closed if BLE drops.
+    reason: ok | mosfet_off | cell_max | missing | stale | invalid
+    """
+    if not payload:
+        return False, False, "missing", None
+    banks = payload.get("banks")
+    if not isinstance(banks, dict) or not banks:
+        return False, False, "invalid", None
+
+    cell_maxes: list[float] = []
+    mosfet_off_banks: list[str] = []
+    saw_fresh = False
+    for name, sample in banks.items():
+        if not isinstance(sample, dict) or not sample.get("ok"):
+            continue
+        try:
+            age = sample.get("age_s")
+            if age is not None and float(age) > max_age_s:
+                continue
+        except (TypeError, ValueError):
+            continue
+        saw_fresh = True
+        if _charge_mosfet_off(sample.get("charge_mosfet")):
+            mosfet_off_banks.append(str(name))
+        cmax = sample.get("cell_max")
+        if cmax is not None:
+            try:
+                cell_maxes.append(float(cmax))
+            except (TypeError, ValueError):
+                pass
+
+    if not saw_fresh:
+        return False, False, "stale", None
+
+    cell_max = max(cell_maxes) if cell_maxes else None
+    if mosfet_off_banks:
+        return True, True, "mosfet_off", cell_max
+    if cell_max is not None and cell_max >= cell_max_abort_v:
+        return True, True, "cell_max", cell_max
+    return True, False, "ok", cell_max
 
 
 def set_charge_current(current: float) -> bool:
@@ -516,10 +594,14 @@ def adjust_battery_charge(
     daily_charge_current: float,
     state: State,
     charge_mode: ChargeMode = ChargeMode.NORMAL,
+    bms_abort: bool = False,
 ) -> float:
     """Return the target charge current (A) for the given state and conditions."""
     if state in (State.SBU, State.UTI_STOPPED):
         log.debug("Charge current = 0 A (state=%s)", state.value)
+        return 0.0
+    if bms_abort:
+        log.debug("Charge current = 0 A (BMS abort)")
         return 0.0
 
     grid_limit = calculate_grid_limit_current(load_power, battery_voltage)
@@ -599,6 +681,8 @@ def main() -> None:
     log.info("Battery charge controller starting")
     log.info("  Poll interval : %d s", POLL_INTERVAL_S)
     log.info("  SoC API       : %s", SOC_API_URL)
+    log.info("  BMS API       : %s", BMS_API_URL)
+    log.info("  BMS abort     : MOSFET off or cell_max >= %.2f V", CELL_MAX_ABORT_V)
     log.info("  Grid budget   : %.0f W", GRID_MAX_POWER_W)
     log.info("  SBU→UTI cooldown: %d s", SBU_TO_UTI_COOLDOWN_S)
     log.info("  API base      : %s", _API_BASE)
@@ -619,6 +703,10 @@ def main() -> None:
     last_output_priority: OutputPriority | None  = None
     estimated_soc:        float | None           = None
     cell_min_v:           float | None           = None
+    bms_abort:            bool                   = False
+    bms_abort_reason:     str                    = "ok"
+    bms_abort_ticks:      int                    = 0
+    bms_cell_max_held:    float | None           = None
     current_state:        State                  = State.UTI_STOPPED  # safe default until first data
     battery_voltage:      float                  = 52.0
     last_sbu_to_uti_time: datetime | None        = None
@@ -699,6 +787,43 @@ def main() -> None:
                     "SoC feed still %s: %d ticks (%d s)",
                     soc_status, soc_fail_ticks, soc_fail_ticks * POLL_INTERVAL_S,
                 )
+
+        bms_fresh, bms_trip, bms_reason, bms_cell_max = interpret_bms_charge_abort(fetch_bms())
+        if bms_fresh:
+            if bms_trip and not bms_abort:
+                log.warning(
+                    "BMS charge abort: %s  cell_max=%s",
+                    bms_reason,
+                    f"{bms_cell_max:.3f} V" if bms_cell_max is not None else "n/a",
+                )
+            elif not bms_trip and bms_abort:
+                log.info(
+                    "BMS charge abort cleared: %s  cell_max=%s",
+                    bms_reason,
+                    f"{bms_cell_max:.3f} V" if bms_cell_max is not None else "n/a",
+                )
+            bms_abort = bms_trip
+            bms_abort_reason = bms_reason
+            bms_cell_max_held = bms_cell_max
+        elif bms_abort:
+            log.debug(
+                "BMS feed %s while abort latched (%s) — keeping I = 0",
+                bms_reason, bms_abort_reason,
+            )
+        else:
+            log.debug("BMS feed %s — no abort latched, using pack-V table", bms_reason)
+
+        if bms_abort:
+            bms_abort_ticks += 1
+            if bms_abort_ticks % 12 == 0:
+                log.warning(
+                    "BMS charge abort still active: %s  ticks=%d  cell_max=%s%s",
+                    bms_abort_reason, bms_abort_ticks,
+                    f"{bms_cell_max_held:.3f} V" if bms_cell_max_held is not None else "n/a",
+                    "" if bms_fresh else f"  feed={bms_reason}",
+                )
+        else:
+            bms_abort_ticks = 0
 
         # ── Manual override (UI-driven, time-limited) ────────────────
         override = load_manual_override()
@@ -849,6 +974,7 @@ def main() -> None:
             target_charge_current = adjust_battery_charge(
                 estimated_soc, load_power, battery_voltage, daily_charge_current, current_state,
                 charge_mode=charge_mode,
+                bms_abort=bms_abort,
             )
             if last_charge_current != target_charge_current:
                 log.info(

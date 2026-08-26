@@ -116,6 +116,7 @@ services:
       - BASIC_AUTH_PASS=${PASSWORD}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - SOC_API_URL=${SOC_API_URL:-http://host.docker.internal:5006/soc}
+      - BMS_API_URL=${BMS_API_URL:-http://host.docker.internal:5005/bms}
     volumes:
       - .:/app
     depends_on:
