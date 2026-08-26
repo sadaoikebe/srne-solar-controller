@@ -203,5 +203,32 @@ services:
       influxdb:
         condition: service_healthy
 
+  # Shadow SoC estimator — writes measurement soc_estimate. Does not steer SBU/UTI.
+  soc_estimator:
+    image: srne-app:latest
+    container_name: soc_estimator
+    restart: unless-stopped
+    network_mode: host
+    working_dir: /app
+    command: ["python", "soc_estimator.py"]
+    environment:
+      - TZ=${TZ}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - SOC_ESTIMATOR_CONFIG=/app/soc_estimator.yaml
+      - SOC_ESTIMATOR_STATE=/app/soc_estimator_state.json
+      - JKBMS_API_URL=${JKBMS_API_URL:-http://127.0.0.1:5005/bms}
+      - BATTERY_CURRENTS_URL=http://127.0.0.1:5004/battery_currents
+      - INFLUX_URL=http://127.0.0.1:8086
+      - INFLUX_TOKEN=${INFLUX_TOKEN}
+      - INFLUX_ORG=${INFLUX_ORG}
+      - INFLUX_BUCKET=${INFLUX_BUCKET}
+    volumes:
+      - .:/app
+    depends_on:
+      jkbms_api:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+
 volumes:
   grafana-data:

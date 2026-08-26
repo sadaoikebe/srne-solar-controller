@@ -7,3 +7,5 @@ compose.override.yaml
 __pycache__/
 *.pyc
 .pytest_cache/
+soc_estimator_state.json
+soc_estimator_state.json.tmp

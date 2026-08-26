@@ -3,6 +3,9 @@
 Exposes inverter registers over HTTP so that db_writer, battery_controller,
 and daily_target can share a single serial connection without contention.
 
+GET /battery_currents is a no-bus latch of the last PowMr / Growatt battery
+currents already read by /limited_registers and /registers.
+
 Log levels
 ----------
   DEBUG  — per-block register read details, raw register key/value dumps,
@@ -19,11 +22,12 @@ import json
 import os
 import sys
 import hmac
+import time
 from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from enum import IntEnum
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pymodbus.client as modbusClient
 import serial.tools.list_ports
@@ -193,6 +197,105 @@ def _as_dec_dict(
 ) -> Dict[str, int]:
     w = set(whitelist)
     return {str(a): raw[a] for a in sorted(raw) if a in w}
+
+
+def _to_signed_16(raw: int) -> int:
+    """Reinterpret a uint16 as signed int16 (same as battery_controller)."""
+    raw = int(raw) & 0xFFFF
+    return raw - 0x10000 if raw >= 0x8000 else raw
+
+
+def decode_powmr_battery(data: Dict[str, int]) -> Optional[Dict[str, float]]:
+    """Scaled PowMr battery V / I. Current sign matches the controller (+ = charging)."""
+    if "0x0101" not in data or "0x0102" not in data:
+        return None
+    return {
+        "voltage_v": int(data["0x0101"]) / 10.0,
+        "current_a": -_to_signed_16(int(data["0x0102"])) / 10.0,
+    }
+
+
+def decode_growatt_battery(data: Dict[str, int]) -> Optional[Dict[str, float]]:
+    """Scaled Growatt battery V and charge/draw currents (unsigned 0.1 A)."""
+    if "83" not in data or "84" not in data:
+        return None
+    out: Dict[str, float] = {
+        "charge_current_a": int(data["83"]) / 10.0,
+        "draw_current_a": int(data["84"]) / 10.0,
+    }
+    if "17" in data:
+        out["voltage_v"] = int(data["17"]) / 100.0
+    return out
+
+
+class BatteryCurrentLatch:
+    """Last battery currents from existing polls. No extra RS485."""
+
+    def __init__(self) -> None:
+        self.powmr: Optional[Dict[str, Any]] = None
+        self.growatt: Optional[Dict[str, Any]] = None
+
+    def update_powmr(self, decoded: Dict[str, float], *, when: Optional[datetime] = None) -> None:
+        now = when or datetime.now(timezone.utc)
+        self.powmr = {
+            **decoded,
+            "sampled_at": now,
+            "mono_at": time.monotonic(),
+        }
+
+    def update_growatt(self, decoded: Dict[str, float], *, when: Optional[datetime] = None) -> None:
+        now = when or datetime.now(timezone.utc)
+        self.growatt = {
+            **decoded,
+            "sampled_at": now,
+            "mono_at": time.monotonic(),
+        }
+
+    def snapshot(self, *, now_mono: Optional[float] = None) -> Dict[str, Any]:
+        now_mono = time.monotonic() if now_mono is None else now_mono
+
+        def _side(stored: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+            if stored is None:
+                return None
+            sampled = stored["sampled_at"]
+            iso = sampled.isoformat() if hasattr(sampled, "isoformat") else str(sampled)
+            out = {
+                k: v
+                for k, v in stored.items()
+                if k not in ("sampled_at", "mono_at")
+            }
+            out["sampled_at"] = iso
+            out["age_s"] = round(now_mono - float(stored["mono_at"]), 2)
+            return out
+
+        powmr = _side(self.powmr)
+        growatt = _side(self.growatt)
+        pack_current_a = None
+        if powmr is not None and growatt is not None:
+            pack_current_a = round(
+                float(powmr["current_a"])
+                + float(growatt["charge_current_a"])
+                - float(growatt["draw_current_a"]),
+                3,
+            )
+        return {
+            "powmr": powmr,
+            "growatt": growatt,
+            "pack_current_a": pack_current_a,
+        }
+
+
+_battery_currents = BatteryCurrentLatch()
+
+
+def _latch_from_register_dict(data: Dict[str, int]) -> None:
+    """Update the latch from a /limited_registers or /registers payload."""
+    powmr = decode_powmr_battery(data)
+    if powmr is not None:
+        _battery_currents.update_powmr(powmr)
+    growatt = decode_growatt_battery(data)
+    if growatt is not None:
+        _battery_currents.update_growatt(growatt)
 
 
 # ── Range validation ──────────────────────────────────────────────────────────
@@ -538,6 +641,8 @@ async def get_all_registers() -> Dict[str, int]:
             log.error("Combined register read returned 0 values")
             raise HTTPException(status_code=502, detail="No registers returned")
 
+        _latch_from_register_dict(combined)
+
         log.info(
             "/registers: %d total  (PowMr: %d  Growatt: %d)",
             len(combined), len(powmr_part), len(growatt_part),
@@ -576,6 +681,8 @@ async def get_limited_registers() -> Dict[str, int]:
                 log.error("/limited_registers: missing addresses %s", missing)
                 raise HTTPException(status_code=502, detail=f"Missing fast addrs: {missing}")
 
+            _latch_from_register_dict(subset)
+
             log.debug(
                 "/limited_registers: SoC=%s%%  raw_V=%s  raw_I=%s  L1=%s W  L2=%s W",
                 subset.get("0x0100"), subset.get("0x0101"),
@@ -587,6 +694,16 @@ async def get_limited_registers() -> Dict[str, int]:
         except Exception as e:
             log.error("/limited_registers: unexpected error: %s", e)
             raise HTTPException(status_code=500, detail=f"PowMr limited read error: {e}")
+
+
+@app.get("/battery_currents")
+async def get_battery_currents() -> Dict[str, Any]:
+    """Last PowMr / Growatt battery currents latched from existing polls.
+
+    No RS485. Missing sides are JSON null until that poll has succeeded once.
+    PowMr current uses the controller sign convention (positive = charging).
+    """
+    return _battery_currents.snapshot()
 
 
 @app.get("/raw_read")

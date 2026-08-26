@@ -1,0 +1,22 @@
+# Shadow SoC estimator (does not steer SBU/UTI).
+# Writes measurement soc_estimate. State file is gitignored.
+
+interval_s: 10
+
+usable_ah:
+  a: 260.0
+  b: 280.0
+
+full_cell_v: 3.59          # SOC-100% setting: our remain := usable
+empty_cell_v: 3.05         # discharge knee: our remain := 0
+
+ble_stale_s: 25            # /bms age_s above this → bank BLE down
+powmr_stale_s: 15
+growatt_stale_s: 45        # /registers is 30 s
+
+# Remain is "moving" if Δremain is at least this fraction of I×Δt,
+# and |I×Δt| is at least min_expected_ah. Otherwise rest (no coast).
+move_fraction: 0.25
+min_expected_ah: 0.01
+
+persist_path: /app/soc_estimator_state.json

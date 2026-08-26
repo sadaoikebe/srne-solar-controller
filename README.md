@@ -39,6 +39,8 @@ graph TD
     API --> DW[db_writer<br/>every 30 s]
     API --> DT[daily_target<br/>22:59 cron]
     JB --> JW[jkbms_db_writer<br/>every 30 s]
+    JB --> SE[soc_estimator<br/>every 10 s]
+    API -.->|latched battery I| SE
     BC -->|set current / priority| API
 
     JMA --> DT
@@ -47,6 +49,7 @@ graph TD
 
     DW -->|measurement modbus| IF[(InfluxDB)]
     JW -->|measurement jkbms| IF
+    SE -->|measurement soc_estimate| IF
     IF --> DT
     IF --> GF[Grafana]
 ```
@@ -78,6 +81,7 @@ INFLUX_TOKEN=...
 | URL | Service |
 |-----|---------|
 | `http://<pi>:5004/set_targets_form` | Charge targets web form |
+| `http://<pi>:5004/battery_currents` | Latched PowMr + Growatt battery I (no extra RS485) |
 | `http://<pi>:5005/health` | JK-BMS API health (local) |
 | `http://<pi>:3000` | Grafana |
 | `http://<pi>:8086` | InfluxDB |
@@ -97,6 +101,7 @@ INFLUX_TOKEN=...
 |-------------|--------|---------|
 | `modbus` | Inverter registers via `db_writer` + `regmap.yaml` | 30 s |
 | `jkbms` | BMS snapshot via `jkbms_db_writer` | 30 s |
+| `soc_estimate` | Shadow pack SoC (`soc_estimator`, not used for SBU/UTI) | 10 s |
 
 Optional Growatt **raw** dump (`modbus_raw` in a separate bucket) is **off** by
 default. Set `INFLUX_BUCKET_RAW=solar_raw` in `.env` and recreate `db_writer`
@@ -150,6 +155,8 @@ docker compose up -d
 | `jkbms_api.py` | JK-BMS BLE cache API (query-only, port 5005) |
 | `jkbms_client.py` | BLE read-only protocol helpers |
 | `jkbms_db_writer.py` | BMS snapshot → Influx (`jkbms`) every 30 s |
+| `soc_estimator.py` | Shadow pack SoC → Influx (`soc_estimate`); not used for control |
+| `soc_estimator.yaml` | Usable Ah and estimator thresholds |
 | `jkbms.yaml` | BMS bank MAC / serial map |
 | `regmap.yaml` | Register address → name / unit / scale |
 | `targets.json` | Runtime state (planner ↔ controller) |
