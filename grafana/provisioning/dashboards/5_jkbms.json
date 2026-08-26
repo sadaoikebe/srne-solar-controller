@@ -1852,7 +1852,7 @@
       "type": "timeseries"
     },
     {
-      "collapsed": false,
+      "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -1861,685 +1861,478 @@
       },
       "id": 40,
       "title": "Full-charge night",
-      "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "influxdb",
-        "uid": "srne-influxdb"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "lineInterpolation": "linear",
-            "lineWidth": 2,
-            "pointSize": 4,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "thresholdsStyle": {
-              "mode": "line+area"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "transparent",
-                "value": null
-              },
-              {
-                "color": "#73BF69",
-                "value": 3.45
-              },
-              {
-                "color": "#FF9830",
-                "value": 3.5
-              },
-              {
-                "color": "#F2495C",
-                "value": 3.55
-              },
-              {
-                "color": "#B877D9",
-                "value": 3.59
-              }
-            ]
-          },
-          "unit": "volt",
-          "min": 3.2,
-          "max": 3.7,
-          "decimals": 3
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 54
-      },
-      "id": 41,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        }
-      },
-      "targets": [
+      "type": "row",
+      "panels": [
         {
           "datasource": {
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jkbms\" and r._field == \"value\")\n  |> filter(fn: (r) => (r.name == \"cell_max\" or r.name == \"cell_min\") and (r.bank == \"a\" or r.bank == \"b\"))\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({\n      _time: r._time,\n      _value: r._value,\n      series: (if r.bank == \"a\" then \"A \" else \"B \") + (if r.name == \"cell_max\" then \"max\" else \"min\"),\n  }))\n  |> group(columns: [\"series\"])\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])",
-          "refId": "A"
-        }
-      ],
-      "title": "Cell max / min (3.45 / 3.50 / 3.55 / 3.59)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "influxdb",
-        "uid": "srne-influxdb"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "lineInterpolation": "linear",
-            "lineWidth": 2,
-            "pointSize": 4,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "amp"
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "I_cmd"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#FF9830",
-                  "mode": "fixed"
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "pointSize": 4,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "thresholdsStyle": {
+                  "mode": "line+area"
                 }
               },
-              {
-                "id": "custom.lineWidth",
-                "value": 3
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "I_pack"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#5794F2",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 54
-      },
-      "id": 42,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "srne-influxdb"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"charge_control\" and r._field == \"value\" and r.name == \"i_cmd\" and r.bank == \"pack\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, series: \"I_cmd\"}))\n  |> group(columns: [\"series\"])\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "srne-influxdb"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"charge_control\" and r._field == \"value\" and r.name == \"i_pack\" and r.bank == \"pack\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, series: \"I_pack\"}))\n  |> group(columns: [\"series\"])\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "srne-influxdb"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jkbms\" and r._field == \"value\" and r.name == \"balance_current\")\n  |> filter(fn: (r) => r.bank == \"a\" or r.bank == \"b\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({\n      _time: r._time,\n      _value: r._value,\n      series: if r.bank == \"a\" then \"Balance A\" else \"Balance B\",\n  }))\n  |> group(columns: [\"series\"])\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])",
-          "refId": "C"
-        }
-      ],
-      "title": "I_cmd / I_pack / balancer",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "influxdb",
-        "uid": "srne-influxdb"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "fillOpacity": 85,
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineWidth": 0,
-            "spanNulls": false
-          },
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "0": {
-                  "text": "NORMAL",
-                  "color": "#73BF69",
-                  "index": 0
-                },
-                "1": {
-                  "text": "CC",
-                  "color": "#5794F2",
-                  "index": 1
-                },
-                "2": {
-                  "text": "SOAK",
-                  "color": "#FF9830",
-                  "index": 2
-                },
-                "3": {
-                  "text": "CALIBRATE",
-                  "color": "#B877D9",
-                  "index": 3
-                }
-              }
-            }
-          ],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 62
-      },
-      "id": 43,
-      "options": {
-        "alignValue": "center",
-        "legend": {
-          "displayMode": "hidden",
-          "placement": "bottom",
-          "showLegend": false
-        },
-        "mergeValues": true,
-        "rowHeight": 0.9,
-        "showValue": "auto",
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        },
-        "perPage": 0
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "srne-influxdb"
-          },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"charge_control\" and r._field == \"value\" and r.name == \"charge_mode\" and r.bank == \"pack\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, series: \"Phase\"}))\n  |> group(columns: [\"series\"])\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])",
-          "refId": "A"
-        }
-      ],
-      "title": "Charge mode",
-      "type": "state-timeline"
-    },
-    {
-      "datasource": {
-        "type": "influxdb",
-        "uid": "srne-influxdb"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "fillOpacity": 85,
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineWidth": 0,
-            "spanNulls": false
-          },
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "0": {
-                  "text": "off",
-                  "color": "#F2495C",
-                  "index": 0
-                },
-                "1": {
-                  "text": "on",
-                  "color": "#73BF69",
-                  "index": 1
-                }
-              }
-            }
-          ],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Abort"
-            },
-            "properties": [
-              {
-                "id": "mappings",
-                "value": [
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
                   {
-                    "type": "value",
-                    "options": {
-                      "0": {
-                        "text": "ok",
-                        "color": "#73BF69",
-                        "index": 0
-                      },
-                      "1": {
-                        "text": "abort",
-                        "color": "#F2495C",
-                        "index": 1
-                      }
+                    "color": "transparent",
+                    "value": null
+                  },
+                  {
+                    "color": "#73BF69",
+                    "value": 3.45
+                  },
+                  {
+                    "color": "#FF9830",
+                    "value": 3.5
+                  },
+                  {
+                    "color": "#F2495C",
+                    "value": 3.55
+                  },
+                  {
+                    "color": "#B877D9",
+                    "value": 3.59
+                  }
+                ]
+              },
+              "unit": "volt",
+              "min": 3.2,
+              "max": 3.7,
+              "decimals": 3
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 54
+          },
+          "id": 41,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "influxdb",
+                "uid": "srne-influxdb"
+              },
+              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jkbms\" and r._field == \"value\")\n  |> filter(fn: (r) => (r.name == \"cell_max\" or r.name == \"cell_min\") and (r.bank == \"a\" or r.bank == \"b\"))\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({\n      _time: r._time,\n      _value: r._value,\n      series: (if r.bank == \"a\" then \"A \" else \"B \") + (if r.name == \"cell_max\" then \"max\" else \"min\"),\n  }))\n  |> group(columns: [\"series\"])\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])",
+              "refId": "A"
+            }
+          ],
+          "title": "Cell max / min (3.45 / 3.50 / 3.55 / 3.59)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "srne-influxdb"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "pointSize": 4,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "amp"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "I_cmd"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#FF9830",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 3
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "I_pack"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#5794F2",
+                      "mode": "fixed"
                     }
                   }
                 ]
               }
             ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 62
-      },
-      "id": 44,
-      "options": {
-        "alignValue": "center",
-        "legend": {
-          "displayMode": "hidden",
-          "placement": "bottom",
-          "showLegend": false
-        },
-        "mergeValues": true,
-        "rowHeight": 0.9,
-        "showValue": "auto",
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        },
-        "perPage": 0
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jkbms\" and r._field == \"value\" and r.name == \"charge_mosfet\")\n  |> filter(fn: (r) => r.bank == \"a\" or r.bank == \"b\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({\n      _time: r._time,\n      _value: r._value,\n      series: if r.bank == \"a\" then \"MOSFET A\" else \"MOSFET B\",\n  }))\n  |> group(columns: [\"series\"])\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "srne-influxdb"
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 54
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"charge_control\" and r._field == \"value\" and r.name == \"bms_abort\" and r.bank == \"pack\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, series: \"Abort\"}))\n  |> group(columns: [\"series\"])\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])",
-          "refId": "B"
-        }
-      ],
-      "title": "MOSFET / abort",
-      "type": "state-timeline"
-    },
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 70
-      },
-      "id": 45,
-      "title": "SoC estimator",
-      "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "influxdb",
-        "uid": "srne-influxdb"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "fillOpacity": 85,
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
+          "id": 42,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
             },
-            "insertNulls": false,
-            "lineWidth": 0,
-            "spanNulls": false
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
           },
-          "mappings": [
+          "targets": [
             {
-              "type": "value",
-              "options": {
-                "0": {
-                  "text": "track",
-                  "color": "#73BF69",
-                  "index": 0
-                },
-                "1": {
-                  "text": "coast_jk",
-                  "color": "#FF9830",
-                  "index": 1
-                },
-                "2": {
-                  "text": "coast_inverters",
-                  "color": "#FADE2A",
-                  "index": 2
-                },
-                "3": {
-                  "text": "held",
-                  "color": "#8AB8FF",
-                  "index": 3
-                },
-                "4": {
-                  "text": "full_anchor",
-                  "color": "#B877D9",
-                  "index": 4
-                },
-                "5": {
-                  "text": "empty_anchor",
-                  "color": "#F2495C",
-                  "index": 5
-                }
-              }
+              "datasource": {
+                "type": "influxdb",
+                "uid": "srne-influxdb"
+              },
+              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"charge_control\" and r._field == \"value\" and r.name == \"i_cmd\" and r.bank == \"pack\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, series: \"I_cmd\"}))\n  |> group(columns: [\"series\"])\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "influxdb",
+                "uid": "srne-influxdb"
+              },
+              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"charge_control\" and r._field == \"value\" and r.name == \"i_pack\" and r.bank == \"pack\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, series: \"I_pack\"}))\n  |> group(columns: [\"series\"])\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])",
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "influxdb",
+                "uid": "srne-influxdb"
+              },
+              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jkbms\" and r._field == \"value\" and r.name == \"balance_current\")\n  |> filter(fn: (r) => r.bank == \"a\" or r.bank == \"b\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({\n      _time: r._time,\n      _value: r._value,\n      series: if r.bank == \"a\" then \"Balance A\" else \"Balance B\",\n  }))\n  |> group(columns: [\"series\"])\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])",
+              "refId": "C"
             }
           ],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
+          "title": "I_cmd / I_pack / balancer",
+          "type": "timeseries"
         },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 71
-      },
-      "id": 46,
-      "options": {
-        "alignValue": "center",
-        "legend": {
-          "displayMode": "hidden",
-          "placement": "bottom",
-          "showLegend": false
-        },
-        "mergeValues": true,
-        "rowHeight": 0.9,
-        "showValue": "auto",
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        },
-        "perPage": 0
-      },
-      "targets": [
         {
           "datasource": {
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"soc_estimate\" and r._field == \"value\" and r.name == \"soc_est\")\n  |> filter(fn: (r) => r.bank == \"a\" or r.bank == \"b\")\n  |> map(fn: (r) => ({\n      _time: r._time,\n      _value:\n        if r.source == \"track\" then 0.0\n        else if r.source == \"coast_jk\" then 1.0\n        else if r.source == \"coast_inverters\" then 2.0\n        else if r.source == \"held\" then 3.0\n        else if r.source == \"full_anchor\" then 4.0\n        else if r.source == \"empty_anchor\" then 5.0\n        else -1.0,\n      series: if r.bank == \"a\" then \"Bank A\" else \"Bank B\",\n  }))\n  |> group(columns: [\"series\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])",
-          "refId": "A"
-        }
-      ],
-      "title": "Source \u2014 Bank A / B",
-      "type": "state-timeline"
-    },
-    {
-      "datasource": {
-        "type": "influxdb",
-        "uid": "srne-influxdb"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "fillOpacity": 85,
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineWidth": 0,
-            "spanNulls": false
-          },
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "0": {
-                  "text": "UTI_STOPPED",
-                  "color": "#FADE2A",
-                  "index": 0
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "fillOpacity": 85,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
                 },
-                "1": {
-                  "text": "UTI_CHARGING",
-                  "color": "#FF9830",
-                  "index": 1
-                },
-                "2": {
-                  "text": "SBU",
-                  "color": "#73BF69",
-                  "index": 2
+                "insertNulls": false,
+                "lineWidth": 0,
+                "spanNulls": false
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
+                      "text": "NORMAL",
+                      "color": "#73BF69",
+                      "index": 0
+                    },
+                    "1": {
+                      "text": "CC",
+                      "color": "#5794F2",
+                      "index": 1
+                    },
+                    "2": {
+                      "text": "SOAK",
+                      "color": "#FF9830",
+                      "index": 2
+                    },
+                    "3": {
+                      "text": "CALIBRATE",
+                      "color": "#B877D9",
+                      "index": 3
+                    }
+                  }
                 }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
               }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 62
+          },
+          "id": 43,
+          "options": {
+            "alignValue": "center",
+            "legend": {
+              "displayMode": "hidden",
+              "placement": "bottom",
+              "showLegend": false
+            },
+            "mergeValues": true,
+            "rowHeight": 0.9,
+            "showValue": "auto",
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            },
+            "perPage": 0
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "influxdb",
+                "uid": "srne-influxdb"
+              },
+              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"charge_control\" and r._field == \"value\" and r.name == \"charge_mode\" and r.bank == \"pack\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, series: \"Phase\"}))\n  |> group(columns: [\"series\"])\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])",
+              "refId": "A"
             }
           ],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
+          "title": "Charge mode",
+          "type": "state-timeline"
         },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 71
-      },
-      "id": 47,
-      "options": {
-        "alignValue": "center",
-        "legend": {
-          "displayMode": "hidden",
-          "placement": "bottom",
-          "showLegend": false
-        },
-        "mergeValues": true,
-        "rowHeight": 0.9,
-        "showValue": "auto",
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        },
-        "perPage": 0
-      },
-      "targets": [
         {
           "datasource": {
             "type": "influxdb",
             "uid": "srne-influxdb"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"charge_control\" and r._field == \"value\" and r.name == \"controller_state\" and r.bank == \"pack\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, series: \"State\"}))\n  |> group(columns: [\"series\"])\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])",
-          "refId": "A"
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "fillOpacity": 85,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineWidth": 0,
+                "spanNulls": false
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
+                      "text": "off",
+                      "color": "#F2495C",
+                      "index": 0
+                    },
+                    "1": {
+                      "text": "on",
+                      "color": "#73BF69",
+                      "index": 1
+                    }
+                  }
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Abort"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "0": {
+                            "text": "ok",
+                            "color": "#73BF69",
+                            "index": 0
+                          },
+                          "1": {
+                            "text": "abort",
+                            "color": "#F2495C",
+                            "index": 1
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 62
+          },
+          "id": 44,
+          "options": {
+            "alignValue": "center",
+            "legend": {
+              "displayMode": "hidden",
+              "placement": "bottom",
+              "showLegend": false
+            },
+            "mergeValues": true,
+            "rowHeight": 0.9,
+            "showValue": "auto",
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            },
+            "perPage": 0
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "influxdb",
+                "uid": "srne-influxdb"
+              },
+              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jkbms\" and r._field == \"value\" and r.name == \"charge_mosfet\")\n  |> filter(fn: (r) => r.bank == \"a\" or r.bank == \"b\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({\n      _time: r._time,\n      _value: r._value,\n      series: if r.bank == \"a\" then \"A\" else \"B\",\n  }))\n  |> group(columns: [\"series\"])\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "influxdb",
+                "uid": "srne-influxdb"
+              },
+              "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"charge_control\" and r._field == \"value\" and r.name == \"bms_abort\" and r.bank == \"pack\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, series: \"Abort\"}))\n  |> group(columns: [\"series\"])\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])",
+              "refId": "B"
+            }
+          ],
+          "title": "MOSFET / abort",
+          "type": "state-timeline"
         }
-      ],
-      "title": "Output priority",
-      "type": "state-timeline"
+      ]
     }
   ],
   "refresh": "30s",

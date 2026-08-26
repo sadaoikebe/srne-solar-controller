@@ -223,5 +223,5 @@ SoC. The system will not try to notice.
 | `battery_controller.py` | `/soc` + `/bms` abort + Modbus writes + `charge_control` |
 | `jkbms_api.py` | Keep-alive BLE, `GET /bms` |
 
-Grafana Real-Time gauge is Est. SoC. Graphs overlays PowMr / estimate / JK A /
-JK B. State timelines: estimator source A/B, Output priority, Charge mode.
+Grafana Real-Time gauge is Est. SoC. Graphs: Est pack/A/B; folded JK pack/A/B.
+Output priority is under Load & Grid. SoC estimator row is source A/B.
