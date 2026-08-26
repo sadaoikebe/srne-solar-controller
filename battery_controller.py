@@ -136,6 +136,11 @@ CHARGE_MODE_CODE: dict[ChargeMode, int] = {
     ChargeMode.SOAK: 2,
     ChargeMode.CALIBRATE: 3,
 }
+CONTROLLER_STATE_CODE: dict[State, int] = {
+    State.UTI_STOPPED: 0,
+    State.UTI_CHARGING: 1,
+    State.SBU: 2,
+}
 CHARGE_CONTROL_MEASUREMENT = "charge_control"
 
 
@@ -452,6 +457,7 @@ def format_charge_tick(
 def build_charge_control_records(
     *,
     mode: ChargeMode,
+    state: State,
     i_cmd: float,
     i_pack: float | None,
     bms: BmsView,
@@ -460,6 +466,9 @@ def build_charge_control_records(
     """Influx records for measurement charge_control (field=value, like soc_estimate)."""
     recs: list[ChargeControlRecord] = [
         ChargeControlRecord("pack", "charge_mode", "code", float(CHARGE_MODE_CODE[mode])),
+        ChargeControlRecord(
+            "pack", "controller_state", "code", float(CONTROLLER_STATE_CODE[state]),
+        ),
         ChargeControlRecord("pack", "i_cmd", "A", float(i_cmd)),
         ChargeControlRecord("pack", "bms_abort", "bool", 1.0 if abort else 0.0),
         ChargeControlRecord("pack", "charge_mosfet", "bool", 0.0 if bms.mosfet_off else 1.0),
@@ -1502,6 +1511,7 @@ def main() -> None:
         write_charge_control(
             build_charge_control_records(
                 mode=charge_mode,
+                state=current_state,
                 i_cmd=i_cmd_now,
                 i_pack=i_pack,
                 bms=bms,

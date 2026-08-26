@@ -15,6 +15,7 @@ from battery_controller import (
     CELL_SOAK_V,
     CC_MAX_CURRENT,
     CHARGE_MODE_CODE,
+    CONTROLLER_STATE_CODE,
     ChargeMode,
     FullChargeState,
     SOAK_MIN_DURATION_S,
@@ -520,10 +521,19 @@ class TestChargeObservability(unittest.TestCase):
             )
         )
         recs = build_charge_control_records(
-            mode=ChargeMode.SOAK, i_cmd=20.0, i_pack=18.0, bms=view, abort=False,
+            mode=ChargeMode.SOAK,
+            state=State.UTI_CHARGING,
+            i_cmd=20.0,
+            i_pack=18.0,
+            bms=view,
+            abort=False,
         )
         by = {(r.bank, r.name): r for r in recs}
         self.assertEqual(by[("pack", "charge_mode")].value, CHARGE_MODE_CODE[ChargeMode.SOAK])
+        self.assertEqual(
+            by[("pack", "controller_state")].value,
+            CONTROLLER_STATE_CODE[State.UTI_CHARGING],
+        )
         self.assertEqual(by[("pack", "i_cmd")].value, 20.0)
         self.assertEqual(by[("pack", "i_pack")].value, 18.0)
         self.assertEqual(by[("pack", "bms_abort")].value, 0.0)
