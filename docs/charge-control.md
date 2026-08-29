@@ -59,10 +59,9 @@ Compared to the old BULK + clocked SYNC 30 A, not to the failed millivolt servo.
   B12 / B14 rotate as hottest; A07 / A08 the same class), not the knee.
   Leave CC when pack ≥ 55.2 V or **IR-free** `max(V − I·R)` over all 32
   cells ≥ 3.45 V. Loaded abort remains 3.55 V (CC / NORMAL only).
-- **SOAK:** same amp steps on IR-free max, min’d with pack-V, **floor 20 A**
-  until loaded `cell_max ≥ 3.59 V`, then 0 A (balancer hold) until ~06:40.
-  Abort **3.62 V** / pack **57.9 V** — not 3.55 V, or the 3.59 V snap is
-  unreachable (28–29 Aug: 144 min at 0 A hunting OVPR).
+- **SOAK:** pack-V table min **loaded** hottest-cell table (same amp
+  steps). Last bin **3 A**. Do not zero at 3.59 V. Abort **3.62 V** /
+  pack **57.9 V**. Stay until ~06:40.
 - **CALIBRATE:** flat **10 A** to 3.59 V. Same 3.62 V / 57.9 V abort. No
   IR-free 7 A cap.
 
@@ -70,8 +69,8 @@ Compared to the old BULK + clocked SYNC 30 A, not to the failed millivolt servo.
 CC   120 A until pack-V 55.2 or IR-free cell_max ≥ 3.45 V
      loaded 3.45 V does nothing; loaded 3.55 V → 0 A
 
-SOAK max(table, 20 A) until loaded 3.59 V, then 0 A
-     abort 3.62 V / pack 57.9 V; stay until ~06:40 → CALIBRATE
+SOAK table on loaded hottest cell (tail 3 A); stay until ~06:40
+     abort 3.62 V / pack 57.9 V → CALIBRATE
 
 CALIBRATE 10 A to 3.59 V; abort 3.62 V / pack 57.9 V
      complete only on cell 3.59 V or remain_est at full

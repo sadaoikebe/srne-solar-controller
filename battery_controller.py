@@ -61,10 +61,9 @@ CELL_MAX_ABORT_V:     float = 3.55     # JK OVPR; I = 0 at or above this (not CA
 # CC fills at up to CC_MAX_CURRENT until pack 55.2 V or IR-free cell_max
 # hits CELL_KNEE_V. Loaded hottest-cell 3.45 V is IR on the high-R cells
 # (B05/B08/B12/B14 rotate; A07/A08 the same class), not the knee.
-# SOAK holds the pack-V / IR-free cell table so the 2 A balancer can run
-# until ~06:40. Floor 20 A until loaded cell_max ≥ 3.59 V, then 0 A
-# (balance hold). Abort 3.62 V / pack 57.9 V — not 3.55 V, or we never
-# reach the 3.59 V snap.
+# SOAK is the pack-V table min loaded-hottest-cell table until ~06:40.
+# Last bin 3 A. Do not zero at 3.59 V — 3 A holds the balancer window.
+# Abort 3.62 V / pack 57.9 V.
 # CALIBRATE is a flat 10 A to CELL_CALIBRATE_V. Same 3.62 V abort.
 
 CC_MAX_CURRENT:            float = 120.0
@@ -76,7 +75,7 @@ PACK_KNEE_V:               float = 55.2  # backstop to enter SOAK if BLE is down
 PACK_ABORT_V:              float = 56.8  # ~3.55 × 16; CC / NORMAL
 PACK_CALIBRATE_ABORT_V:    float = 57.9  # ~3.62 × 16; SOAK / CALIBRATE
 I_SLEW_A:                  float = 10.0  # unused (no slew on I_cmd)
-SOAK_HOLD_CURRENT_A:       float = 20.0  # SOAK floor until loaded 3.59 V
+SOAK_HOLD_CURRENT_A:       float = 20.0  # BLE-down cap when cells missing at the knee
 CALIBRATE_MAX_CURRENT:     float = 10.0
 SOAK_MIN_CELL_V:           float = 3.45
 SOAK_TAIL_CURRENT_A:       float = 15.0
@@ -96,7 +95,7 @@ PACK_VOLT_LIMITS: list[tuple[float, float]] = [
     (56.8, 10), (56.9, 7),
 ]
 # Same I steps as PACK_VOLT_LIMITS, bounds in V/cell (pack / 16).
-# Looked up on IR-free cell voltage, not loaded hottest cell.
+# CC uses IR-free cell_max. SOAK uses loaded hottest cell.
 CELL_CURRENT_LIMITS: list[tuple[float, float]] = [
     (v / 16.0, lim) for v, lim in PACK_VOLT_LIMITS
 ]
@@ -631,7 +630,7 @@ def pack_volt_current_cap(battery_voltage: float) -> float:
     for volt_threshold, limit in PACK_VOLT_LIMITS:
         if battery_voltage < volt_threshold:
             return float(limit)
-    return 2.0
+    return 3.0
 
 
 def cell_current_cap(
@@ -646,7 +645,7 @@ def cell_current_cap(
     for bound, cap in CELL_CURRENT_LIMITS:
         if cell_v < bound:
             return min(float(cap), i_cc)
-    return min(2.0, i_cc)
+    return min(3.0, i_cc)
 
 
 def soc_current_cap(soc_pct: float, i_cc: float) -> float:
@@ -711,20 +710,19 @@ def table_charge_current(
 
 
 def soak_cell_current(
-    cell_max_eff: float | None,
+    cell_max: float | None,
     cell_min: float | None,
     pack_v: float,
     cell_abort_v: float = CELL_CALIBRATE_ABORT_V,
 ) -> float:
-    """SOAK: pack-V ladder, IR-free cell ladder as the cell overlay.
+    """SOAK: pack-V table min loaded hottest-cell table.
 
     Same 120/80/60/40/30/24/… steps. cell_min unused (16S series shares I).
-    Floor / 3.59 V hold is applied in adjust_battery_charge.
     """
     del cell_min
     i_want = pack_volt_current_cap(pack_v)
-    if cell_max_eff is not None:
-        i_want = min(i_want, cell_current_cap(cell_max_eff, 120.0, cell_abort_v))
+    if cell_max is not None:
+        i_want = min(i_want, cell_current_cap(cell_max, 120.0, cell_abort_v))
     return i_want
 
 
@@ -1227,12 +1225,8 @@ def adjust_battery_charge(
         target = CALIBRATE_MAX_CURRENT
     elif charge_mode == ChargeMode.SOAK:
         target = soak_cell_current(
-            cell_max_eff, cell_min, battery_voltage, cell_abort_v=abort_v,
+            cell_max, cell_min, battery_voltage, cell_abort_v=abort_v,
         )
-        if cell_max is not None and cell_max >= CELL_CALIBRATE_V:
-            target = 0.0
-        else:
-            target = max(target, SOAK_HOLD_CURRENT_A)
     else:
         target = table_charge_current(
             cell_max=cell_max,
@@ -1282,9 +1276,9 @@ def main() -> None:
     log.info("  Time periods  : %s",
              "  ".join(f"{p['name']} ({p['start']}–{p['end']})" for p in TIME_PERIODS))
     log.info(
-        "  Full charge   : CC ≤%.0fA → SOAK floor %.0fA / abort %.2f V "
+        "  Full charge   : CC ≤%.0fA → SOAK table / abort %.2f V "
         "→ CALIBRATE %.0fA to %.2f V (abort %.2f / pack %.1f V)",
-        CC_MAX_CURRENT, SOAK_HOLD_CURRENT_A, CELL_CALIBRATE_ABORT_V,
+        CC_MAX_CURRENT, CELL_CALIBRATE_ABORT_V,
         CALIBRATE_MAX_CURRENT, CELL_CALIBRATE_V,
         CELL_CALIBRATE_ABORT_V, PACK_CALIBRATE_ABORT_V,
     )

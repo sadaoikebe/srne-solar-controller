@@ -36,9 +36,9 @@ Estimator tape: **A 260 + B 280 = 540 Ah**.
 - BMS abort: `I = 0` if charge MOSFET off or `cell_max ≥ 3.55 V` (3.62 V in
   SOAK / CALIBRATE). Pack abort 56.8 V / 57.9 V. Latch if BLE then drops.
 - Full-charge nights: **CC → SOAK → CALIBRATE**. IR-free cell table on CC/SOAK;
-  SOAK floor 20 A until loaded 3.59 V then 0 A; CALIBRATE 10 A. Stamp
-  `last_full_charge` only on 3.59 V / remain_est, not cheap-end. SOAK until
-  ~06:40; no SBU after complete the same cheap window.
+  SOAK table on loaded hottest cell (tail 3 A). CALIBRATE 10 A. Stamp
+  `last_full_charge` only on 3.59 V / remain_est.
+  SOAK until ~06:40; no SBU after complete the same cheap window.
 - Cheap night: regulate to `hold = target + 0.25 %/h × hours left`. 23:12 at
   20 % parks; 20 % at 06:51 keeps SBU. Fill current is `daily_charge_current`.
   See [`charge-control.md`](charge-control.md).

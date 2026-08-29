@@ -17,7 +17,6 @@ from battery_controller import (
     CELL_SOAK_V,
     PACK_ABORT_V,
     PACK_CALIBRATE_ABORT_V,
-    SOAK_HOLD_CURRENT_A,
     CC_MAX_CURRENT,
     CHARGE_MODE_CODE,
     CONTROLLER_STATE_CODE,
@@ -492,10 +491,9 @@ class TestAdjustBatteryChargeBmsAbort(unittest.TestCase):
         )
         self.assertEqual(i, 0.0)
 
-    def test_soak_uses_ir_free_ladder_not_loaded_hottest(self):
-        # IR-free 3.46 V → 80 A. Loaded 3.46 V with no IR-free stays 120 A
-        # (high-R cells sit there on the plateau at 120 A pack).
-        i_loaded_ir = self._charging(
+    def test_soak_uses_loaded_hottest_cell_table(self):
+        # Loaded 3.46 V → 80 A even if pack is still 54 V.
+        i_80 = self._charging(
             charge_mode=ChargeMode.SOAK,
             daily_charge_current=0.0,
             battery_voltage=54.0,
@@ -503,59 +501,45 @@ class TestAdjustBatteryChargeBmsAbort(unittest.TestCase):
             cell_min=3.30,
             battery_soc=40.0,
         )
-        i_80 = self._charging(
-            charge_mode=ChargeMode.SOAK,
-            daily_charge_current=0.0,
-            battery_voltage=54.0,
-            cell_max=3.46,
-            cell_max_eff=3.46,
-            cell_min=3.40,
-            battery_soc=95.0,
-        )
         i_30 = self._charging(
             charge_mode=ChargeMode.SOAK,
             daily_charge_current=0.0,
             battery_voltage=54.0,
-            cell_max=3.53,
-            cell_max_eff=3.50,
-            cell_min=3.48,
+            cell_max=3.50,
+            cell_min=3.40,
             battery_soc=95.0,
         )
         i_24 = self._charging(
             charge_mode=ChargeMode.SOAK,
             daily_charge_current=0.0,
             battery_voltage=54.0,
-            cell_max=3.54,
-            cell_max_eff=3.52,
+            cell_max=3.52,
             cell_min=3.48,
             battery_soc=99.0,
         )
-        self.assertEqual(i_loaded_ir, 120.0)
         self.assertEqual(i_80, 80.0)
         self.assertEqual(i_30, 30.0)
         self.assertEqual(i_24, 24.0)
 
-    def test_soak_floors_20a_at_loaded_355(self):
+    def test_soak_follows_table_at_loaded_355(self):
         i = self._charging(
             charge_mode=ChargeMode.SOAK,
             daily_charge_current=0.0,
             battery_voltage=56.8,
             cell_max=3.55,
-            cell_max_eff=3.55,
             battery_soc=99.0,
         )
-        self.assertEqual(i, SOAK_HOLD_CURRENT_A)
+        self.assertEqual(i, 7.0)
 
-    def test_soak_zeros_at_loaded_359(self):
+    def test_soak_3a_at_loaded_359(self):
         i = self._charging(
             charge_mode=ChargeMode.SOAK,
             daily_charge_current=0.0,
             battery_voltage=57.0,
             cell_max=CELL_CALIBRATE_V,
-            cell_max_eff=CELL_CALIBRATE_V,
             battery_soc=99.0,
         )
-        self.assertEqual(i, 0.0)
+        self.assertEqual(i, 3.0)
 
     def test_soak_aborts_at_362(self):
         i = self._charging(
