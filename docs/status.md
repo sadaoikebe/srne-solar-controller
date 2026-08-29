@@ -34,11 +34,14 @@ Estimator tape: **A 260 + B 280 = 540 Ah**.
 - Estimator modes: `track` / `coast_jk` / `held` / `coast_inverters` /
   `full_anchor` (3.59 V) / `empty_anchor` (3.05 V). See [`soc-control.md`](soc-control.md).
 - BMS abort: `I = 0` if charge MOSFET off or `cell_max ≥ 3.55 V` (3.62 V in
-  CALIBRATE). Latch if BLE then drops.
-- Full-charge nights: **CC → SOAK → CALIBRATE** on `max(cell)`, not clocked SYNC.
-- Cheap SBU: leave SBU at `target + 0.25 %/h × hours left` so a 23:12 hit at
-  20 % parks; 20 % at 06:51 keeps SBU. `daily_charge_current = 0` = **no grid
-  fill** (PV can still charge). See [`charge-control.md`](charge-control.md).
+  SOAK / CALIBRATE). Pack abort 56.8 V / 57.9 V. Latch if BLE then drops.
+- Full-charge nights: **CC → SOAK → CALIBRATE**. IR-free cell table on CC/SOAK;
+  SOAK floor 20 A until loaded 3.59 V then 0 A; CALIBRATE 10 A. Stamp
+  `last_full_charge` only on 3.59 V / remain_est, not cheap-end. SOAK until
+  ~06:40; no SBU after complete the same cheap window.
+- Cheap night: regulate to `hold = target + 0.25 %/h × hours left`. 23:12 at
+  20 % parks; 20 % at 06:51 keeps SBU. Fill current is `daily_charge_current`.
+  See [`charge-control.md`](charge-control.md).
 - Influx `charge_control` every 5 s (`charge_mode`, `controller_state`, `i_cmd`, …).
 - Grafana state timelines: Charge mode, Output priority, estimator source A/B, MOSFET/abort.
   Full-charge night row (two-up) on JK-BMS and Graphs.
@@ -76,4 +79,4 @@ not a target-18 hold. 22:59 cron is skipped once.
 - Write JK settings/MOSFET/balance over BLE.
 - Nightly 2.6 V cycles.
 - Auto-switch to `0x0100` on BLE loss.
-- Grid trickle “to hold SoC” when `daily_charge_current` is 0.
+- Grid trickle “to hold SoC”.

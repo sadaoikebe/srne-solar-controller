@@ -13,12 +13,17 @@ from battery_controller import (
     CELL_KNEE_V,
     CELL_MAX_ABORT_V,
     CELL_MIN_FLOOR_V,
+    CELL_R_MOHM,
     CELL_SOAK_V,
+    PACK_ABORT_V,
+    PACK_CALIBRATE_ABORT_V,
+    SOAK_HOLD_CURRENT_A,
     CC_MAX_CURRENT,
     CHARGE_MODE_CODE,
     CONTROLLER_STATE_CODE,
     ChargeMode,
     FullChargeState,
+    PACK_KNEE_V,
     SOAK_MIN_DURATION_S,
     State,
     adjust_battery_charge,
@@ -26,12 +31,14 @@ from battery_controller import (
     banks_at_full,
     build_charge_control_records,
     cell_cv_current,
-    cheap_sbu_exit_soc,
+    cheap_end_full_charge_action,
+    cheap_hold_soc,
     determine_next_state,
     format_charge_tick,
     hot_cell_label,
     interpret_bms_charge_abort,
     interpret_soc,
+    ir_free_cell_max,
     parse_bms_view,
     seconds_until_cheap_end,
 )
@@ -47,9 +54,10 @@ def _bank(
     charge_mosfet: object = True,
     cells: list[float] | None = None,
     balance_current: float = 0.0,
+    current: float | None = None,
 ) -> dict:
     delta = cell_delta if cell_delta is not None else cell_max - cell_min
-    return {
+    sample = {
         "ok": ok,
         "age_s": age_s,
         "cell_max": cell_max,
@@ -59,10 +67,19 @@ def _bank(
         "cells": cells,
         "balance_current": balance_current,
     }
+    if current is not None:
+        sample["current"] = current
+    return sample
 
 
 def _bms(*banks: tuple[str, dict]) -> dict:
     return {"banks": {name: sample for name, sample in banks}}
+
+
+def _cells(hot_idx0: int, hot_v: float, rest: float = 3.33, n: int = 16) -> list[float]:
+    out = [rest] * n
+    out[hot_idx0] = hot_v
+    return out
 
 
 def _view(**kwargs):
@@ -71,11 +88,15 @@ def _view(**kwargs):
             cell_max=kwargs.pop("a_max", 3.33),
             cell_min=kwargs.pop("a_min", 3.30),
             charge_mosfet=kwargs.pop("a_mosfet", True),
+            cells=kwargs.pop("a_cells", None),
+            current=kwargs.pop("a_current", None),
         )),
         ("b", _bank(
             cell_max=kwargs.pop("b_max", 3.32),
             cell_min=kwargs.pop("b_min", 3.30),
             charge_mosfet=kwargs.pop("b_mosfet", True),
+            cells=kwargs.pop("b_cells", None),
+            current=kwargs.pop("b_current", None),
         )),
     )
     return parse_bms_view(payload, **kwargs)
@@ -138,9 +159,12 @@ class TestCellMinFloor(unittest.TestCase):
         self.assertEqual(state, State.SBU)
 
 
-class TestCheapSbuPad(unittest.TestCase):
-    def _next(self, state, soc, *, seconds_left, daily=0.0, target=18.0):
-        nxt, _, _ = determine_next_state(
+class TestCheapHold(unittest.TestCase):
+    def _next(
+        self, state, soc, *, seconds_left, daily=0.0, target=18.0,
+        full_charge_done_today=False,
+    ):
+        nxt, daily_out, _ = determine_next_state(
             state,
             estimated_soc=soc,
             target_soc=target,
@@ -149,58 +173,119 @@ class TestCheapSbuPad(unittest.TestCase):
             daily_charge_current=daily,
             last_sbu_to_uti_time=None,
             seconds_left_cheap=seconds_left,
+            full_charge_done_today=full_charge_done_today,
         )
-        return nxt
+        return nxt, daily_out
 
-    def test_exit_soc_at_2312_is_about_20(self):
+    def test_hold_at_2312_is_about_20(self):
         # 23:12 → 06:58 = 7 h 46 min
         left = 7 * 3600 + 46 * 60
-        exit_soc = cheap_sbu_exit_soc(18.0, left)
-        self.assertAlmostEqual(exit_soc, 18.0 + IDLE_SOC_PCT_PER_H * left / 3600.0)
-        self.assertAlmostEqual(exit_soc, 19.94, places=2)
+        hold = cheap_hold_soc(18.0, left)
+        self.assertAlmostEqual(hold, 18.0 + IDLE_SOC_PCT_PER_H * left / 3600.0)
+        self.assertAlmostEqual(hold, 19.94, places=2)
 
     def test_sbu_at_20pct_2312_stops(self):
         left = 7 * 3600 + 46 * 60
         self.assertEqual(
-            self._next(State.SBU, 20.0, seconds_left=left),
+            self._next(State.SBU, 20.0, seconds_left=left)[0],
             State.UTI_STOPPED,
         )
 
     def test_sbu_at_20pct_0651_stays_sbu(self):
         left = 7 * 60
         self.assertEqual(
-            self._next(State.SBU, 20.0, seconds_left=left),
+            self._next(State.SBU, 20.0, seconds_left=left)[0],
             State.SBU,
         )
 
     def test_sbu_at_18pct_0651_stops(self):
         left = 7 * 60
         self.assertEqual(
-            self._next(State.SBU, 18.2, seconds_left=left),
+            self._next(State.SBU, 18.2, seconds_left=left)[0],
             State.UTI_STOPPED,
         )
 
-    def test_daily_zero_never_charges(self):
+    def test_below_hold_goes_to_charging(self):
         left = 8 * 3600
-        self.assertEqual(
-            self._next(State.SBU, 16.0, seconds_left=left, daily=0.0),
-            State.UTI_STOPPED,
-        )
-        self.assertEqual(
-            self._next(State.UTI_STOPPED, 16.0, seconds_left=left, daily=0.0),
-            State.UTI_STOPPED,
-        )
-        self.assertEqual(
-            self._next(State.UTI_CHARGING, 16.0, seconds_left=left, daily=0.0),
-            State.UTI_STOPPED,
-        )
+        for daily in (0.0, 40.0):
+            self.assertEqual(
+                self._next(State.SBU, 16.0, seconds_left=left, daily=daily)[0],
+                State.UTI_CHARGING,
+            )
+            self.assertEqual(
+                self._next(State.UTI_STOPPED, 16.0, seconds_left=left, daily=daily)[0],
+                State.UTI_CHARGING,
+            )
+            self.assertEqual(
+                self._next(State.UTI_CHARGING, 16.0, seconds_left=left, daily=daily)[0],
+                State.UTI_CHARGING,
+            )
 
-    def test_daily_nonzero_charges_when_below_target(self):
-        left = 8 * 3600
+    def test_charging_stops_at_hold_not_raw_target(self):
+        # Last night: target 54 %, ~5 h left, SoC 54.4 % must keep filling.
+        left = 5 * 3600
         self.assertEqual(
-            self._next(State.SBU, 16.0, seconds_left=left, daily=40.0),
+            self._next(
+                State.UTI_CHARGING, 54.4, seconds_left=left, daily=10.0, target=54.0,
+            )[0],
             State.UTI_CHARGING,
         )
+
+    def test_charging_parks_at_hold_does_not_sbu(self):
+        left = 8 * 3600
+        hold = cheap_hold_soc(18.0, left)
+        self.assertEqual(
+            self._next(State.UTI_CHARGING, hold + 0.5, seconds_left=left)[0],
+            State.UTI_STOPPED,
+        )
+
+    def test_full_charge_done_today_does_not_sbu(self):
+        left = 2 * 3600
+        self.assertEqual(
+            self._next(
+                State.UTI_STOPPED, 99.0, seconds_left=left,
+                target=54.0, full_charge_done_today=True,
+            )[0],
+            State.UTI_STOPPED,
+        )
+        self.assertEqual(
+            self._next(
+                State.SBU, 99.0, seconds_left=left,
+                target=54.0, full_charge_done_today=True,
+            )[0],
+            State.UTI_STOPPED,
+        )
+
+    def test_idle_matched_to_hold_does_not_restart(self):
+        # Charged to hold+0.4 with 5 h left, then 3.2 h of 0.25 %/h idle.
+        soc = cheap_hold_soc(54.0, 5 * 3600) + 0.4 - IDLE_SOC_PCT_PER_H * 3.2
+        left = (5 - 3.2) * 3600
+        self.assertEqual(
+            self._next(
+                State.UTI_STOPPED, soc, seconds_left=left, daily=10.0, target=54.0,
+            )[0],
+            State.UTI_STOPPED,
+        )
+
+    def test_small_dip_after_park_does_not_restart(self):
+        # Last night 05:07: ~1 % below hold must not start another fill.
+        left = 1 * 3600 + 51 * 60
+        hold = cheap_hold_soc(54.0, left)
+        self.assertGreater(53.6, hold - 2.0)
+        self.assertEqual(
+            self._next(
+                State.UTI_STOPPED, 53.6, seconds_left=left, daily=70.0, target=54.0,
+            )[0],
+            State.UTI_STOPPED,
+        )
+
+    def test_does_not_mutate_daily_current(self):
+        left = 8 * 3600
+        hold = cheap_hold_soc(18.0, left)
+        _, daily = self._next(
+            State.UTI_CHARGING, hold + 0.5, seconds_left=left, daily=40.0,
+        )
+        self.assertEqual(daily, 40.0)
 
 
 class TestInterpretBmsChargeAbort(unittest.TestCase):
@@ -332,15 +417,17 @@ class TestAdjustBatteryChargeBmsAbort(unittest.TestCase):
             self._charging(charge_mode=ChargeMode.CC, bms_abort=True), 0.0
         )
 
-    def test_normal_ignores_soc_taper_below_knee(self):
-        # Old SOC_LIMITS would cap 90% SoC at 70 A. CC uses daily_charge_current.
+    def test_uti_charging_at_zero_daily_is_zero_amps(self):
+        self.assertEqual(self._charging(daily_charge_current=0.0), 0.0)
+
+    def test_normal_applies_soc_table(self):
         i = self._charging(
             battery_soc=90.0,
             daily_charge_current=80.0,
             cell_max=3.33,
             i_prev=80.0,
         )
-        self.assertEqual(i, 80.0)
+        self.assertEqual(i, 60.0)
 
     def test_normal_tapers_at_cell_knee(self):
         i = self._charging(
@@ -362,6 +449,17 @@ class TestAdjustBatteryChargeBmsAbort(unittest.TestCase):
         )
         self.assertEqual(i, 120.0)
 
+    def test_cc_ignores_soc_taper_until_knee(self):
+        i = self._charging(
+            charge_mode=ChargeMode.CC,
+            daily_charge_current=0.0,
+            cell_max=3.33,
+            i_prev=120.0,
+            battery_soc=90.0,
+            battery_voltage=52.0,
+        )
+        self.assertEqual(i, 120.0)
+
     def test_calibrate_caps_at_10a(self):
         i = self._charging(
             charge_mode=ChargeMode.CALIBRATE,
@@ -372,6 +470,153 @@ class TestAdjustBatteryChargeBmsAbort(unittest.TestCase):
         self.assertLessEqual(i, 10.0)
         self.assertGreater(i, 0.0)
 
+    def test_pack_v_table_caps_when_cell_not_abort(self):
+        i = self._charging(
+            battery_soc=50.0,
+            daily_charge_current=120.0,
+            battery_voltage=55.5,
+            cell_max=3.40,
+            i_prev=120.0,
+            charge_mode=ChargeMode.CC,
+        )
+        self.assertEqual(i, 80.0)
+
+    def test_hot_cell_aborts_despite_low_pack_v(self):
+        i = self._charging(
+            charge_mode=ChargeMode.CC,
+            daily_charge_current=120.0,
+            battery_voltage=54.0,
+            cell_max=CELL_MAX_ABORT_V,
+            i_prev=120.0,
+            battery_soc=50.0,
+        )
+        self.assertEqual(i, 0.0)
+
+    def test_soak_uses_ir_free_ladder_not_loaded_hottest(self):
+        # IR-free 3.46 V → 80 A. Loaded 3.46 V with no IR-free stays 120 A
+        # (high-R cells sit there on the plateau at 120 A pack).
+        i_loaded_ir = self._charging(
+            charge_mode=ChargeMode.SOAK,
+            daily_charge_current=0.0,
+            battery_voltage=54.0,
+            cell_max=3.46,
+            cell_min=3.30,
+            battery_soc=40.0,
+        )
+        i_80 = self._charging(
+            charge_mode=ChargeMode.SOAK,
+            daily_charge_current=0.0,
+            battery_voltage=54.0,
+            cell_max=3.46,
+            cell_max_eff=3.46,
+            cell_min=3.40,
+            battery_soc=95.0,
+        )
+        i_30 = self._charging(
+            charge_mode=ChargeMode.SOAK,
+            daily_charge_current=0.0,
+            battery_voltage=54.0,
+            cell_max=3.53,
+            cell_max_eff=3.50,
+            cell_min=3.48,
+            battery_soc=95.0,
+        )
+        i_24 = self._charging(
+            charge_mode=ChargeMode.SOAK,
+            daily_charge_current=0.0,
+            battery_voltage=54.0,
+            cell_max=3.54,
+            cell_max_eff=3.52,
+            cell_min=3.48,
+            battery_soc=99.0,
+        )
+        self.assertEqual(i_loaded_ir, 120.0)
+        self.assertEqual(i_80, 80.0)
+        self.assertEqual(i_30, 30.0)
+        self.assertEqual(i_24, 24.0)
+
+    def test_soak_floors_20a_at_loaded_355(self):
+        i = self._charging(
+            charge_mode=ChargeMode.SOAK,
+            daily_charge_current=0.0,
+            battery_voltage=56.8,
+            cell_max=3.55,
+            cell_max_eff=3.55,
+            battery_soc=99.0,
+        )
+        self.assertEqual(i, SOAK_HOLD_CURRENT_A)
+
+    def test_soak_zeros_at_loaded_359(self):
+        i = self._charging(
+            charge_mode=ChargeMode.SOAK,
+            daily_charge_current=0.0,
+            battery_voltage=57.0,
+            cell_max=CELL_CALIBRATE_V,
+            cell_max_eff=CELL_CALIBRATE_V,
+            battery_soc=99.0,
+        )
+        self.assertEqual(i, 0.0)
+
+    def test_soak_aborts_at_362(self):
+        i = self._charging(
+            charge_mode=ChargeMode.SOAK,
+            daily_charge_current=0.0,
+            battery_voltage=57.0,
+            cell_max=CELL_CALIBRATE_ABORT_V,
+            cell_max_eff=3.55,
+            battery_soc=99.0,
+        )
+        self.assertEqual(i, 0.0)
+
+    def test_calibrate_10a_at_355_despite_pack_568(self):
+        i = self._charging(
+            charge_mode=ChargeMode.CALIBRATE,
+            daily_charge_current=120.0,
+            battery_voltage=PACK_ABORT_V,
+            cell_max=3.55,
+            cell_max_eff=3.55,
+            battery_soc=99.0,
+        )
+        self.assertEqual(i, 10.0)
+
+    def test_calibrate_pack_abort_at_579(self):
+        i = self._charging(
+            charge_mode=ChargeMode.CALIBRATE,
+            daily_charge_current=120.0,
+            battery_voltage=PACK_CALIBRATE_ABORT_V,
+            cell_max=3.58,
+            battery_soc=99.0,
+        )
+        self.assertEqual(i, 0.0)
+
+    def test_cc_still_pack_aborts_at_568(self):
+        i = self._charging(
+            charge_mode=ChargeMode.CC,
+            daily_charge_current=120.0,
+            battery_voltage=PACK_ABORT_V,
+            cell_max=3.40,
+            battery_soc=50.0,
+        )
+        self.assertEqual(i, 0.0)
+
+    def test_normal_120a_while_high_r_cells_loaded_345(self):
+        # B05/B08/B12/B14 at 3.46 V loaded, ~61 A, pack 53.9 V, SoC 39 %.
+        i_b = 61.4
+        loaded = 3.46
+        for idx in (4, 7, 11, 13):
+            r = CELL_R_MOHM["b"][idx] * 1e-3
+            eff = loaded - i_b * r
+            self.assertLess(eff, CELL_KNEE_V, msg=f"B{idx+1:02d}")
+            i = self._charging(
+                battery_soc=39.0,
+                daily_charge_current=120.0,
+                battery_voltage=53.9,
+                cell_max=loaded,
+                cell_max_eff=eff,
+                charge_mode=ChargeMode.NORMAL,
+            )
+            self.assertEqual(i, 120.0, msg=f"B{idx+1:02d}")
+
 
 class TestCellCvCurrent(unittest.TestCase):
     def test_below_knee_goes_to_cc(self):
@@ -380,17 +625,17 @@ class TestCellCvCurrent(unittest.TestCase):
         )
         self.assertEqual(i, 80.0)
 
-    def test_slew_up_from_zero(self):
+    def test_from_zero_writes_table_value(self):
         i = cell_cv_current(
             cell_max=3.33, v_set=CELL_SOAK_V, i_prev=0.0, i_cc=80.0,
         )
-        self.assertEqual(i, 10.0)
+        self.assertEqual(i, 80.0)
 
-    def test_at_soak_setpoint_holds_low(self):
+    def test_below_abort_does_not_cap(self):
         i = cell_cv_current(
             cell_max=CELL_SOAK_V, v_set=CELL_SOAK_V, i_prev=20.0, i_cc=120.0,
         )
-        self.assertLessEqual(i, 20.0)
+        self.assertEqual(i, 120.0)
 
     def test_abort_voltage_zeros(self):
         i = cell_cv_current(
@@ -398,15 +643,15 @@ class TestCellCvCurrent(unittest.TestCase):
         )
         self.assertEqual(i, 0.0)
 
-    def test_dvdt_projects_abort(self):
+    def test_dvdt_does_not_slam_to_zero(self):
         i = cell_cv_current(
             cell_max=3.50,
             v_set=CELL_SOAK_V,
-            i_prev=40.0,
+            i_prev=20.0,
             i_cc=120.0,
-            dv_dt=0.01,  # 10 mV/s → 3.55 in 5 s
+            dv_dt=0.01,
         )
-        self.assertEqual(i, 0.0)
+        self.assertEqual(i, 120.0)
 
     def test_missing_cell_max_is_none(self):
         self.assertIsNone(
@@ -441,18 +686,76 @@ class TestAdvanceFullCharge(unittest.TestCase):
         self.assertEqual(nxt.mode, ChargeMode.CC)
         self.assertFalse(nxt.complete)
 
-    def test_cc_enters_soak_at_knee(self):
+    def test_cc_enters_soak_at_pack_knee(self):
         nxt = advance_full_charge(
             FullChargeState(mode=ChargeMode.CC),
             now=self._now(),
-            bms=_view(a_max=CELL_KNEE_V, b_max=3.40, a_min=3.40, b_min=3.38),
-            pack_v=55.0,
+            bms=_view(a_max=3.33, b_max=3.33, a_min=3.30, b_min=3.30),
+            pack_v=PACK_KNEE_V,
             pack_charge_a=80.0,
             soc_payload=None,
             seconds_left=4 * 3600,
         )
         self.assertEqual(nxt.mode, ChargeMode.SOAK)
         self.assertIsNotNone(nxt.soak_started_at)
+
+    def test_cc_does_not_end_on_loaded_high_r_ir(self):
+        # Whichever of B05/B08/B12/B14 is loaded-hottest at 3.46 V / 61 A,
+        # pack 53.9 V — still CC. Same IR class, rotating identity.
+        for idx in (4, 7, 11, 13):
+            b_cells = _cells(idx, 3.46)
+            view = _view(
+                a_max=3.40, b_max=3.46, a_min=3.30, b_min=3.33,
+                b_cells=b_cells, b_current=61.4,
+                a_cells=_cells(7, 3.40), a_current=35.0,
+            )
+            nxt = advance_full_charge(
+                FullChargeState(mode=ChargeMode.CC),
+                now=self._now(),
+                bms=view,
+                pack_v=53.9,
+                pack_charge_a=100.0,
+                soc_payload=None,
+                seconds_left=4 * 3600,
+            )
+            self.assertEqual(nxt.mode, ChargeMode.CC, msg=f"B{idx+1:02d}")
+            self.assertIsNotNone(view.cell_max_ir_free, msg=f"B{idx+1:02d}")
+            self.assertLess(view.cell_max_ir_free, CELL_KNEE_V, msg=f"B{idx+1:02d}")
+
+    def test_ir_free_max_is_all_cells_not_loaded_hottest(self):
+        cells = [3.33] * 16
+        cells[4] = 3.43   # B05
+        cells[7] = 3.46   # B08 loaded hottest
+        cells[11] = 3.45  # B12
+        cells[13] = 3.45  # B14
+        cells[0] = 3.34   # B01 low R
+        ve = ir_free_cell_max({"b": cells}, {"b": 61.4})
+        self.assertIsNotNone(ve)
+        self.assertLess(ve, CELL_KNEE_V)
+        # Low-R B01 IR-free can exceed a high-R cell's IR-free.
+        ve_b01 = 3.34 - 61.4 * CELL_R_MOHM["b"][0] * 1e-3
+        ve_b08 = 3.46 - 61.4 * CELL_R_MOHM["b"][7] * 1e-3
+        self.assertAlmostEqual(ve, max(ve_b01, ve_b08, 3.43 - 61.4 * CELL_R_MOHM["b"][4] * 1e-3,
+                                      3.45 - 61.4 * CELL_R_MOHM["b"][11] * 1e-3,
+                                      3.45 - 61.4 * CELL_R_MOHM["b"][13] * 1e-3),
+                               places=4)
+
+    def test_cc_enters_soak_on_ir_free_knee(self):
+        # Resting / low-I 3.45 V is a real knee.
+        nxt = advance_full_charge(
+            FullChargeState(mode=ChargeMode.CC),
+            now=self._now(),
+            bms=_view(
+                a_max=3.45, b_max=3.40, a_min=3.40, b_min=3.38,
+                a_cells=_cells(0, 3.45, rest=3.40), a_current=0.0,
+                b_cells=_cells(0, 3.40), b_current=0.0,
+            ),
+            pack_v=54.0,
+            pack_charge_a=0.0,
+            soc_payload=None,
+            seconds_left=4 * 3600,
+        )
+        self.assertEqual(nxt.mode, ChargeMode.SOAK)
 
     def test_soak_waits_for_min_duration(self):
         started = self._now()
@@ -467,7 +770,7 @@ class TestAdvanceFullCharge(unittest.TestCase):
         )
         self.assertEqual(nxt.mode, ChargeMode.SOAK)
 
-    def test_soak_advances_after_min_duration_and_quality(self):
+    def test_soak_holds_until_cheap_reserve(self):
         started = self._now()
         now = started + timedelta(seconds=SOAK_MIN_DURATION_S + 5)
         nxt = advance_full_charge(
@@ -483,7 +786,7 @@ class TestAdvanceFullCharge(unittest.TestCase):
             soc_payload=None,
             seconds_left=3 * 3600,
         )
-        self.assertEqual(nxt.mode, ChargeMode.CALIBRATE)
+        self.assertEqual(nxt.mode, ChargeMode.SOAK)
 
     def test_soak_advances_when_cheap_window_running_out(self):
         started = self._now()
@@ -533,6 +836,22 @@ class TestAdvanceFullCharge(unittest.TestCase):
     def test_banks_at_full_needs_both(self):
         bms = _view(a_max=3.59, b_max=3.50)
         self.assertFalse(banks_at_full(bms, None))
+
+    def test_cheap_end_completes_only_when_full(self):
+        full = _view(a_max=3.59, b_max=3.595, a_min=3.50, b_min=3.50)
+        not_full = _view(a_max=3.55, b_max=3.55, a_min=3.50, b_min=3.50)
+        self.assertEqual(
+            cheap_end_full_charge_action(ChargeMode.CALIBRATE, full, None),
+            "complete",
+        )
+        self.assertEqual(
+            cheap_end_full_charge_action(ChargeMode.SOAK, not_full, None),
+            "abandon",
+        )
+        self.assertEqual(
+            cheap_end_full_charge_action(ChargeMode.CC, full, None),
+            "abort",
+        )
 
 
 class TestSecondsUntilCheapEnd(unittest.TestCase):
