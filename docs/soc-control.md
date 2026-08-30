@@ -65,8 +65,8 @@ Per bank, usable Ah is config (`soc_estimator.yaml`: A 260, B 280), not JK
 | Mode | When | Integration |
 |---|---|---|
 | **track** | BLE fresh, `remain_ah` moving with current | `remain_est += Δremain_jk` (offset held) |
-| **coast_jk** | BLE fresh, remain stuck (99 % freeze, fake 0 % floor) | `remain_est += I_jk × Δt` |
-| **coast_inverters** | **both** banks BLE down, latch has PowMr+Growatt I | split `I_pack` by last \|I\| share |
+| **coast_jk** | BLE fresh, remain stuck **> 35 s** with real I (99 % / 0 % freeze) | `remain_est += I_jk × Δt` (first tick credits the wait) |
+| **coast_inverters** | **both** banks BLE down, latch has PowMr+Growatt I | split `I_pack` by last \|I\| share; also advance `last_remain_jk` so BLE-back follows the tape, not tape+coast |
 | **held** | this bank BLE down, the other live | freeze that bank’s `remain_est` |
 | **full_anchor** | `cell_max ≥ 3.59 V` | `remain_est = usable` |
 | **empty_anchor** | `cell_min ≤ 3.05 V` | `remain_est = 0` |
@@ -84,8 +84,8 @@ B disagree — Grafana graphs A/B only):
 ```mermaid
 stateDiagram-v2
     [*] --> track: cold start
-    track --> track: remain_ah moves or rest
-    track --> coast_jk: remain stuck, real I
+    track --> track: remain_ah moves, rest, or short remain lag
+    track --> coast_jk: remain stuck > 35 s, real I
     coast_jk --> track: remain moves again
     track --> full_anchor: cell_max ≥ 3.59 V
     coast_jk --> full_anchor: cell_max ≥ 3.59 V
@@ -94,8 +94,8 @@ stateDiagram-v2
     track --> held: this BLE down, other live
     coast_jk --> held: this BLE down, other live
     held --> coast_inverters: both BLE down, inverter I
-    held --> track: BLE back relock
-    coast_inverters --> track: BLE back relock
+    held --> track: BLE back, this bank remain_ah
+    coast_inverters --> track: BLE back, this bank remain_ah
 ```
 
 Anchors only on a **live** BLE sample. Both BLE down and no inverter I: `held`,

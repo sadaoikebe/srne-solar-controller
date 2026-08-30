@@ -31,6 +31,7 @@ def _cfg() -> EstimatorConfig:
         growatt_stale_s=45.0,
         move_fraction=0.25,
         min_expected_ah=0.01,
+        stuck_before_coast_s=35.0,
     )
 
 
@@ -130,11 +131,62 @@ class TestStep(unittest.TestCase):
             "a": _live(193.8, 25.0, nominal=195.777, cell_max=3.55),
             "b": _live(280.0, 0.4, nominal=280.0, cell_max=3.45),
         }
-        r = step(s0, samples, None, cfg=cfg, dt_s=10.0)
+        st = s0
+        for _ in range(3):
+            r = step(st, samples, None, cfg=cfg, dt_s=10.0)
+            self.assertEqual(r.modes["a"], "track")
+            st = r.states
+        r = step(st, samples, None, cfg=cfg, dt_s=10.0)
         self.assertEqual(r.modes["a"], "coast_jk")
-        # 25 A × 10 s / 3600 = 0.0694 Ah
-        self.assertAlmostEqual(r.states["a"].remain_est, 259.0 + 25.0 * 10.0 / 3600.0, places=3)
+        self.assertAlmostEqual(r.states["a"].remain_est, 259.0 + 25.0 * 40.0 / 3600.0, places=3)
         self.assertEqual(r.modes["b"], "track")  # rest-sized I, remain still
+
+    def test_one_tick_remain_lag_stays_track(self):
+        cfg = _cfg()
+        s0 = {
+            "a": BankState(remain_est=100.0, last_remain_jk=40.0, initialized=True, mode="track"),
+            "b": BankState(remain_est=140.0, last_remain_jk=140.0, initialized=True, mode="track"),
+        }
+        lagged = step(
+            s0,
+            {"a": _live(40.0, -32.0), "b": _live(140.0, 0.2, nominal=280.0)},
+            None, cfg=cfg, dt_s=10.0,
+        )
+        self.assertEqual(lagged.modes["a"], "track")
+        self.assertAlmostEqual(lagged.states["a"].remain_est, 100.0)
+        d_ah = 32.0 * 10.0 / 3600.0
+        caught = step(
+            lagged.states,
+            {"a": _live(40.0 - d_ah, -32.0), "b": _live(140.0, 0.2, nominal=280.0)},
+            None, cfg=cfg, dt_s=10.0,
+        )
+        self.assertEqual(caught.modes["a"], "track")
+        self.assertAlmostEqual(caught.states["a"].remain_est, 100.0 - d_ah, places=4)
+
+    def test_zero_freeze_then_charge_tracks(self):
+        cfg = _cfg()
+        s0 = {
+            "a": BankState(remain_est=2.0, last_remain_jk=0.0, initialized=True, mode="track"),
+            "b": BankState(remain_est=20.0, last_remain_jk=20.0, initialized=True, mode="track"),
+        }
+        frozen = {"a": _live(0.0, -20.0, cell_min=3.20), "b": _live(20.0, 0.2, nominal=280.0)}
+        st = s0
+        for _ in range(4):
+            r = step(st, frozen, None, cfg=cfg, dt_s=10.0)
+            st = r.states
+        self.assertEqual(r.modes["a"], "coast_jk")
+        charging = {"a": _live(0.0, 20.0, cell_min=3.20), "b": _live(20.0, 0.2, nominal=280.0)}
+        st = step(st, charging, None, cfg=cfg, dt_s=10.0).states
+        self.assertEqual(st["a"].mode, "coast_jk")
+        before = st["a"].remain_est
+        d_jk = 0.08
+        r = step(
+            st,
+            {"a": _live(d_jk, 20.0, cell_min=3.20), "b": _live(20.0, 0.2, nominal=280.0)},
+            None, cfg=cfg, dt_s=10.0,
+        )
+        self.assertEqual(r.modes["a"], "track")
+        self.assertAlmostEqual(r.states["a"].remain_est, before + d_jk, places=4)
 
     def test_full_anchor(self):
         cfg = _cfg()
@@ -190,16 +242,34 @@ class TestStep(unittest.TestCase):
         r = step(s0, samples, inv, cfg=cfg, dt_s=10.0, shares=shares)
         self.assertTrue(r.write)
         self.assertEqual(r.modes["a"], "coast_inverters")
-        self.assertAlmostEqual(
-            r.states["a"].remain_est,
-            100.0 + 0.25 * (-36.0) * 10.0 / 3600.0,
-            places=4,
+        d_a = 0.25 * (-36.0) * 10.0 / 3600.0
+        d_b = 0.75 * (-36.0) * 10.0 / 3600.0
+        self.assertAlmostEqual(r.states["a"].remain_est, 100.0 + d_a, places=4)
+        self.assertAlmostEqual(r.states["b"].remain_est, 140.0 + d_b, places=4)
+        self.assertAlmostEqual(r.states["a"].last_remain_jk, 40.0 + d_a, places=4)
+        self.assertAlmostEqual(r.states["b"].last_remain_jk, 140.0 + d_b, places=4)
+
+    def test_coast_inverters_then_ble_follows_tape(self):
+        cfg = _cfg()
+        s0 = {
+            "a": BankState(remain_est=100.0, last_remain_jk=40.0, initialized=True, mode="track"),
+            "b": BankState(remain_est=140.0, last_remain_jk=140.0, initialized=True, mode="track"),
+        }
+        inv = InverterSnapshot(pack_current_a=-36.0, powmr_age_s=1.0, growatt_age_s=8.0)
+        shares = {"a": 0.5, "b": 0.5}
+        coasted = step(
+            s0, {"a": _dead(), "b": _dead()}, inv, cfg=cfg, dt_s=3600.0, shares=shares,
         )
-        self.assertAlmostEqual(
-            r.states["b"].remain_est,
-            140.0 + 0.75 * (-36.0) * 10.0 / 3600.0,
-            places=4,
+        # 0.5 × −36 A × 1 h = −18 Ah on each bank.
+        self.assertAlmostEqual(coasted.states["a"].remain_est, 82.0, places=4)
+        self.assertAlmostEqual(coasted.states["a"].last_remain_jk, 22.0, places=4)
+        back = step(
+            coasted.states,
+            {"a": _live(22.0, -18.0), "b": _live(122.0, -18.0, nominal=280.0)},
+            None, cfg=cfg, dt_s=10.0,
         )
+        self.assertAlmostEqual(back.states["a"].remain_est, 82.0, places=4)
+        self.assertAlmostEqual(back.states["b"].remain_est, 122.0, places=4)
 
     def test_everything_down_skips_write(self):
         cfg = _cfg()
@@ -212,7 +282,7 @@ class TestStep(unittest.TestCase):
         self.assertEqual(r.modes["a"], "held")
         self.assertAlmostEqual(r.states["a"].remain_est, 100.0)
 
-    def test_returning_from_held_does_not_apply_gap_delta(self):
+    def test_returning_from_held_applies_this_bank_jk_gap(self):
         cfg = _cfg()
         s0 = {
             "a": BankState(
@@ -220,15 +290,16 @@ class TestStep(unittest.TestCase):
             ),
             "b": BankState(remain_est=140.0, last_remain_jk=140.0, initialized=True, mode="track"),
         }
-        # JK remain jumped 40 → 50 while we were held; must not add +10 Ah.
+        # A's JK tape kept counting 40 → 30 while BLE was down. Offset stays +60.
         samples = {
-            "a": _live(50.0, 5.0),
+            "a": _live(30.0, -20.0),
             "b": _live(140.0, 0.2, nominal=280.0),
         }
         r = step(s0, samples, None, cfg=cfg, dt_s=10.0)
         self.assertEqual(r.modes["a"], "track")
-        self.assertAlmostEqual(r.states["a"].remain_est, 100.0)
-        self.assertAlmostEqual(r.states["a"].last_remain_jk, 50.0)
+        self.assertAlmostEqual(r.states["a"].remain_est, 90.0)
+        self.assertAlmostEqual(r.states["a"].last_remain_jk, 30.0)
+        self.assertAlmostEqual(r.states["b"].remain_est, 140.0)
 
     def test_soc_pack_uses_usable_ah(self):
         cfg = _cfg()

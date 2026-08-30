@@ -18,5 +18,7 @@ growatt_stale_s: 45        # /registers is 30 s
 # and |I×Δt| is at least min_expected_ah. Otherwise rest (no coast).
 move_fraction: 0.25
 min_expected_ah: 0.01
+# BLE remain ~30 s. Stuck shorter than this is lag → stay track.
+stuck_before_coast_s: 35.0
 
 persist_path: /app/soc_estimator_state.json

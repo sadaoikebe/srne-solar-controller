@@ -54,6 +54,8 @@ class EstimatorConfig:
     growatt_stale_s: float = 45.0
     move_fraction: float = 0.25
     min_expected_ah: float = 0.01
+    # Remain updates ~30 s; 10 s ticks with no Δremain are lag, not a freeze.
+    stuck_before_coast_s: float = 35.0
     persist_path: str = "/app/soc_estimator_state.json"
 
     @property
@@ -88,6 +90,7 @@ class BankState:
     last_current_jk: float = 0.0
     mode: str = "init"
     initialized: bool = False
+    remain_stuck_s: float = 0.0
 
 
 @dataclass
@@ -229,7 +232,6 @@ def step_live_bank(
     usable: float,
     cfg: EstimatorConfig,
     dt_s: float,
-    returning: bool,
 ) -> BankState:
     remain_jk = float(sample.remain_ah)
     current = float(sample.current)
@@ -245,19 +247,25 @@ def step_live_bank(
             mode="track",
         )
         skip_delta = True
-    elif returning or st.last_remain_jk is None:
+    elif st.last_remain_jk is None:
         st = _relock(st, remain_jk)
         skip_delta = True
 
     cell_max = sample.cell_max
     cell_min = sample.cell_min
     if cell_max is not None and cell_max >= cfg.full_cell_v:
-        return replace(st, remain_est=usable, last_remain_jk=remain_jk, mode="full_anchor")
+        return replace(
+            st, remain_est=usable, last_remain_jk=remain_jk, mode="full_anchor",
+            remain_stuck_s=0.0,
+        )
     if cell_min is not None and cell_min <= cfg.empty_cell_v:
-        return replace(st, remain_est=0.0, last_remain_jk=remain_jk, mode="empty_anchor")
+        return replace(
+            st, remain_est=0.0, last_remain_jk=remain_jk, mode="empty_anchor",
+            remain_stuck_s=0.0,
+        )
 
     if skip_delta or st.last_remain_jk is None or dt_s <= 0:
-        return replace(st, last_remain_jk=remain_jk, mode="track")
+        return replace(st, last_remain_jk=remain_jk, mode="track", remain_stuck_s=0.0)
 
     delta = remain_jk - st.last_remain_jk
     if remain_moving(
@@ -268,12 +276,26 @@ def step_live_bank(
         min_expected_ah=cfg.min_expected_ah,
     ):
         remain = clamp(st.remain_est + delta, 0.0, usable)
-        return replace(st, remain_est=remain, last_remain_jk=remain_jk, mode="track")
+        return replace(
+            st, remain_est=remain, last_remain_jk=remain_jk, mode="track",
+            remain_stuck_s=0.0,
+        )
 
-    # Remain stuck — same shunt current still works.
-    d_ah = current * dt_s / 3600.0
-    remain = clamp(st.remain_est + d_ah, 0.0, usable)
-    return replace(st, remain_est=remain, last_remain_jk=remain_jk, mode="coast_jk")
+    # Tape not moving with current. Short lag (BLE remain ~30 s vs 10 s tick)
+    # stays track. Real 0 % / 99 % freeze lasts longer → coast_jk I×t.
+    stuck = st.remain_stuck_s + dt_s
+    if state.mode == "coast_jk" or stuck >= cfg.stuck_before_coast_s:
+        # First coast tick credits the whole wait so the 35 s are not dropped.
+        window_s = stuck if state.mode != "coast_jk" else dt_s
+        d_ah = current * window_s / 3600.0
+        remain = clamp(st.remain_est + d_ah, 0.0, usable)
+        return replace(
+            st, remain_est=remain, last_remain_jk=remain_jk, mode="coast_jk",
+            remain_stuck_s=stuck,
+        )
+    return replace(
+        st, last_remain_jk=remain_jk, mode="track", remain_stuck_s=stuck,
+    )
 
 
 def update_shares(
@@ -323,14 +345,12 @@ def step(
         usable = float(cfg.usable_ah[b])
         prev = states.get(b) or BankState(remain_est=0.0)
         if b in live:
-            returning = prev.mode in ("held", "coast_inverters")
             st = step_live_bank(
                 prev,
                 live[b],
                 usable=usable,
                 cfg=cfg,
                 dt_s=dt_s,
-                returning=returning,
             )
             new_states[b] = st
             modes[b] = st.mode
@@ -339,7 +359,18 @@ def step(
             i_pack = float(inverter.pack_current_a)  # type: ignore[union-attr]
             d_ah = shares.get(b, 1.0 / len(banks)) * i_pack * dt_s / 3600.0
             remain = clamp(prev.remain_est + d_ah, 0.0, usable)
-            new_states[b] = replace(prev, remain_est=remain, mode="coast_inverters", initialized=True)
+            last_jk = prev.last_remain_jk
+            # Advance the JK pointer by the same Ah so BLE-back Δremain_jk
+            # is (tape gap − coast), not tape gap on top of coast.
+            if last_jk is not None:
+                last_jk = last_jk + d_ah
+            new_states[b] = replace(
+                prev,
+                remain_est=remain,
+                last_remain_jk=last_jk,
+                mode="coast_inverters",
+                initialized=True,
+            )
             modes[b] = "coast_inverters"
             measured = True
         else:
