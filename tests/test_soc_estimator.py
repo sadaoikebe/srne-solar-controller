@@ -26,7 +26,6 @@ def _cfg() -> EstimatorConfig:
         interval_s=10,
         usable_ah={"a": 241.0, "b": 280.0},
         full_cell_v=3.565,
-        empty_cell_v=3.05,
         ble_stale_s=25.0,
         powmr_stale_s=15.0,
         growatt_stale_s=45.0,
@@ -211,7 +210,7 @@ class TestStep(unittest.TestCase):
         self.assertAlmostEqual(r.states["a"].remain_est, 241.0)
         self.assertAlmostEqual(r.states["a"].last_remain_jk, 195.777)
 
-    def test_empty_anchor(self):
+    def test_no_empty_snap_keeps_counting(self):
         cfg = _cfg()
         s0 = {
             "a": BankState(remain_est=5.0, last_remain_jk=0.0, initialized=True, mode="coast_jk"),
@@ -222,8 +221,8 @@ class TestStep(unittest.TestCase):
             "b": _live(20.0, -5.0, nominal=280.0, cell_min=3.20, cell_max=3.25),
         }
         r = step(s0, samples, None, cfg=cfg, dt_s=10.0)
-        self.assertEqual(r.modes["a"], "empty_anchor")
-        self.assertEqual(r.states["a"].remain_est, 0.0)
+        self.assertEqual(r.modes["a"], "coast_jk")
+        self.assertAlmostEqual(r.states["a"].remain_est, 5.0 - 10.0 * 10.0 / 3600.0, places=4)
 
     def test_one_bank_ble_down_coasts(self):
         cfg = _cfg()
@@ -348,6 +347,27 @@ class TestSocPayload(unittest.TestCase):
         self.assertIn("soc_pack", body)
         self.assertEqual(body["banks"]["a"]["mode"], "track")
         self.assertEqual(body["poll_count"], 3)
+
+    def test_soc_payload_floors_percent_not_remain(self):
+        cfg = _cfg()
+        s0 = {
+            "a": BankState(remain_est=-8.0, last_remain_jk=0.0, initialized=True, mode="coast_jk"),
+            "b": BankState(remain_est=1.0, last_remain_jk=1.0, initialized=True, mode="track"),
+        }
+        samples = {
+            "a": _live(0.0, -10.0, cell_min=3.00, cell_max=3.10),
+            "b": _live(1.0, 0.2, nominal=280.0),
+        }
+        r = step(s0, samples, None, cfg=cfg, dt_s=10.0)
+        self.assertLess(r.states["a"].remain_est, 0.0)
+        body = build_soc_payload(
+            r, samples, cfg,
+            sampled_at=datetime(2026, 8, 26, tzinfo=timezone.utc),
+            poll_count=1,
+        )
+        self.assertGreaterEqual(body["soc_pack"], 0.0)
+        self.assertEqual(body["banks"]["a"]["soc_est"], 0.0)
+        self.assertLess(body["banks"]["a"]["remain_est"], 0.0)
 
 
 if __name__ == "__main__":

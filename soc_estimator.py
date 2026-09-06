@@ -12,7 +12,7 @@ Modes per bank
                    I_pack split by share if all dead, else I_pack − I_alive
   held             this bank BLE down and no latch current
   full_anchor      cell_max ≥ full_cell_v → remain_est = usable_ah
-  empty_anchor     cell_min ≤ empty_cell_v → remain_est = 0
+  remain_est is not floored at 0. GET /soc SoC is.
 
 No current sensor at all → no Influx write (data gap).
 
@@ -49,7 +49,6 @@ class EstimatorConfig:
     interval_s: int = 10
     usable_ah: Dict[str, float] = field(default_factory=lambda: {"a": 241.0, "b": 280.0})
     full_cell_v: float = 3.565
-    empty_cell_v: float = 3.05
     ble_stale_s: float = 25.0
     powmr_stale_s: float = 15.0
     growatt_stale_s: float = 45.0
@@ -257,15 +256,9 @@ def step_live_bank(
         skip_delta = True
 
     cell_max = sample.cell_max
-    cell_min = sample.cell_min
     if cell_max is not None and cell_max >= cfg.full_cell_v:
         return replace(
             st, remain_est=usable, last_remain_jk=remain_jk, mode="full_anchor",
-            remain_stuck_s=0.0,
-        )
-    if cell_min is not None and cell_min <= cfg.empty_cell_v:
-        return replace(
-            st, remain_est=0.0, last_remain_jk=remain_jk, mode="empty_anchor",
             remain_stuck_s=0.0,
         )
 
@@ -280,7 +273,7 @@ def step_live_bank(
         move_fraction=cfg.move_fraction,
         min_expected_ah=cfg.min_expected_ah,
     ):
-        remain = clamp(st.remain_est + delta, 0.0, usable)
+        remain = min(st.remain_est + delta, usable)
         return replace(
             st, remain_est=remain, last_remain_jk=remain_jk, mode="track",
             remain_stuck_s=0.0,
@@ -293,7 +286,7 @@ def step_live_bank(
         # First coast tick credits the whole wait so the 35 s are not dropped.
         window_s = stuck if state.mode != "coast_jk" else dt_s
         d_ah = current * window_s / 3600.0
-        remain = clamp(st.remain_est + d_ah, 0.0, usable)
+        remain = min(st.remain_est + d_ah, usable)
         return replace(
             st, remain_est=remain, last_remain_jk=remain_jk, mode="coast_jk",
             remain_stuck_s=stuck,
@@ -366,7 +359,7 @@ def step(
                 d_ah = ((i_pack - i_alive) / len(dead)) * dt_s / 3600.0
             else:
                 d_ah = shares.get(b, 1.0 / len(banks)) * i_pack * dt_s / 3600.0
-            remain = clamp(prev.remain_est + d_ah, 0.0, usable)
+            remain = min(prev.remain_est + d_ah, usable)
             last_jk = prev.last_remain_jk
             # Advance the JK pointer by the same Ah so BLE-back Δremain_jk
             # is (tape gap − coast), not tape gap on top of coast.
@@ -420,7 +413,9 @@ def build_soc_payload(
         entry: Dict[str, Any] = {
             "mode": result.modes[b],
             "remain_est": round(st.remain_est, 3),
-            "soc_est": round(100.0 * st.remain_est / usable, 2) if usable else None,
+            "soc_est": (
+                round(max(0.0, 100.0 * st.remain_est / usable), 2) if usable else None
+            ),
             "usable_ah": usable,
             "cell_min": sample.cell_min,
             "cell_max": sample.cell_max,
@@ -433,7 +428,9 @@ def build_soc_payload(
     initialized = any(result.states[b].initialized for b in cfg.banks)
     return {
         "ok": initialized,
-        "soc_pack": round(result.soc_pack, 3) if result.soc_pack is not None else None,
+        "soc_pack": (
+            round(max(0.0, result.soc_pack), 3) if result.soc_pack is not None else None
+        ),
         "source": pack_source,
         "cell_min": min(cell_mins) if cell_mins else None,
         "cell_max": max(cell_maxs) if cell_maxs else None,
@@ -462,7 +459,7 @@ def load_state(path: Path, cfg: EstimatorConfig) -> Tuple[Dict[str, BankState], 
             continue
         usable = float(cfg.usable_ah[b])
         states[b] = BankState(
-            remain_est=clamp(float(blob.get("remain_est", 0.0)), 0.0, usable),
+            remain_est=min(float(blob.get("remain_est", 0.0)), usable),
             last_remain_jk=(
                 float(blob["last_remain_jk"]) if blob.get("last_remain_jk") is not None else None
             ),

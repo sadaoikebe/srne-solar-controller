@@ -69,7 +69,6 @@ Per bank, usable Ah is config (`soc_estimator.yaml`: A 241, B 280), not JK
 | **coast_inverters** | this bank BLE down, latch has I | all dead: split `I_pack` by last \|I\| share. else: `I_pack − I_alive`. Advance `last_remain_jk` so BLE-back follows the tape |
 | **held** | this bank BLE down and no latch I | freeze that bank’s `remain_est` |
 | **full_anchor** | `cell_max ≥ 3.565 V` | `remain_est = usable` |
-| **empty_anchor** | `cell_min ≤ 3.05 V` | `remain_est = 0` |
 
 Cold start: `remain_est = remain_jk + max(0, usable − nominal_jk)`. Persist
 `soc_estimator_state.json` (gitignored).
@@ -89,8 +88,6 @@ stateDiagram-v2
     coast_jk --> track: remain moves again
     track --> full_anchor: cell_max ≥ 3.565 V
     coast_jk --> full_anchor: cell_max ≥ 3.565 V
-    track --> empty_anchor: cell_min ≤ 3.05 V
-    coast_jk --> empty_anchor: cell_min ≤ 3.05 V
     track --> coast_inverters: this BLE down, latch has I
     coast_jk --> coast_inverters: this BLE down, latch has I
     track --> held: this BLE down, no latch I

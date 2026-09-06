@@ -52,7 +52,7 @@ FAIL_SAFE_TICKS:       int = 60        # After this many consecutive fetch failu
                                        # (60 × 5 s = 5 min), force SBU → UTI_STOPPED
                                        # to stop discharging the battery without monitoring.
 SOC_STALE_S:          float = 30.0     # /soc age_s above this → treat as missing
-CELL_MIN_FLOOR_V:     float = 3.05     # weakest-cell floor (matches estimator empty_cell_v)
+CELL_MIN_FLOOR_V:     float = 3.05     # weakest-cell floor (SBU deadman; not an SoC snap)
 BMS_STALE_S:          float = 25.0     # /bms bank age_s above this → bank not used
 CELL_MAX_ABORT_V:     float = 3.55     # JK OVPR; I = 0 at or above this (not CALIBRATE)
 

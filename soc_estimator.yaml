@@ -8,7 +8,6 @@ usable_ah:
   b: 280.0
 
 full_cell_v: 3.565         # remain := usable (not 3.55; yesterday A rest peak 3.570)
-empty_cell_v: 3.05         # discharge knee: our remain := 0
 
 ble_stale_s: 25            # /bms age_s above this → bank BLE down
 powmr_stale_s: 15
