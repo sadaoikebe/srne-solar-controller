@@ -111,12 +111,11 @@ for **coast_inverters**.
 
 Inverter-coast formula (charge-positive, same sign as the controller):
 
-`I_pack ≈ I_powmr + I_growatt_charge − I_growatt_draw`
+`I_pack ≈ I_powmr + I_growatt_charge − I_growatt_draw` when Growatt is in the latch.
 
-Do **not** subtract an extra static 100 W; idle already sits on those two
-ports. If Growatt is missing from the latch, do not invent idle. If nothing
-is measuring current, skip the Influx write; `/soc` still serves last remain
-with growing `age_s`.
+If Growatt is missing, `I_pack = I_powmr`. Do not invent Growatt idle. If
+PowMr is missing or stale, skip the Influx write; `/soc` still serves last
+remain with growing `age_s`.
 
 ### Controller (`battery_controller`, 5 s)
 

@@ -15,6 +15,7 @@ from soc_estimator import (
     build_soc_payload,
     cold_start_remain,
     inverter_fresh,
+    parse_inverter,
     remain_moving,
     step,
 )
@@ -82,9 +83,9 @@ class TestFreshness(unittest.TestCase):
         self.assertFalse(ble_fresh(s, 25.0))
         self.assertTrue(ble_fresh(_live(100.0, 5.0, age_s=1.0), 25.0))
 
-    def test_inverter_requires_growatt(self):
+    def test_inverter_powmr_enough_without_growatt(self):
         cfg = _cfg()
-        self.assertFalse(
+        self.assertTrue(
             inverter_fresh(
                 InverterSnapshot(pack_current_a=10.0, powmr_age_s=1.0, growatt_age_s=None),
                 cfg,
@@ -96,6 +97,13 @@ class TestFreshness(unittest.TestCase):
                 cfg,
             )
         )
+        parsed = parse_inverter({
+            "pack_current_a": None,
+            "powmr": {"current_a": -6.0, "age_s": 1.0},
+            "growatt": None,
+        })
+        self.assertAlmostEqual(parsed.pack_current_a, -6.0)
+        self.assertTrue(inverter_fresh(parsed, cfg))
 
 
 class TestColdStart(unittest.TestCase):

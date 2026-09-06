@@ -155,9 +155,6 @@ def inverter_fresh(inv: Optional[InverterSnapshot], cfg: EstimatorConfig) -> boo
         return False
     if inv.growatt_age_s is not None and inv.growatt_age_s > cfg.growatt_stale_s:
         return False
-    # Growatt side is required so we do not invent idle.
-    if inv.growatt_age_s is None:
-        return False
     return True
 
 
@@ -214,6 +211,13 @@ def parse_inverter(raw: Mapping[str, Any] | None) -> Optional[InverterSnapshot]:
             return float(v) if v is not None else None
         except (TypeError, ValueError):
             return None
+
+    if pack_f is None and powmr is not None:
+        try:
+            pv = powmr.get("current_a")
+            pack_f = float(pv) if pv is not None else None
+        except (TypeError, ValueError):
+            pack_f = None
 
     return InverterSnapshot(
         pack_current_a=pack_f,
