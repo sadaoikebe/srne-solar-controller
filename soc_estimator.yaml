@@ -4,7 +4,7 @@
 interval_s: 10
 
 usable_ah:
-  a: 260.0
+  a: 241.0
   b: 280.0
 
 full_cell_v: 3.565         # remain := usable (not 3.55; yesterday A rest peak 3.570)

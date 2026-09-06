@@ -31,7 +31,7 @@ These are **procedures you choose**, not automatic failovers.
 
 | Mode | Cables | `/soc` meaning | Status |
 |---|---|---|---|
-| **estimator** (BMS unplugged / BLE active) | RS485 optional; BLE up for best quality | 260 Ah + 280 Ah tape; Track / Coast JK / Coast inverters / held | **Implemented** |
+| **estimator** (BMS unplugged / BLE active) | RS485 optional; BLE up for best quality | 241 Ah + 280 Ah tape; Track / Coast JK / Coast inverters / held | **Implemented** |
 | **powmr_compat** (BMS plugged) | RS485 **plugged**; BLE may be dead | Old controller: `0x0100` + 5 s current interpolator + jump filter | **Not implemented** |
 
 `battery_controller` always has **one** SoC client: `GET /soc`. It does not
@@ -59,7 +59,7 @@ flowchart LR
 
 ### Estimator (`soc_estimator`, 10 s)
 
-Per bank, usable Ah is config (`soc_estimator.yaml`: A 260, B 280), not JK
+Per bank, usable Ah is config (`soc_estimator.yaml`: A 241, B 280), not JK
 `nominal_ah` (A stuck ~196).
 
 | Mode | When | Integration |
@@ -143,13 +143,13 @@ Those belonged to sanitizing `0x0100`. One-bank BLE dropout is
 Default state at boot is `UTI_STOPPED` until the first good `/soc`.
 
 `daily_target` still writes `target_soc` as a percent. That percent is now of
-**540 Ah**, not 476. The planner itself was not changed.
+**521 Ah**, not 476. The planner itself was not changed.
 
 ## Why BLE-down is not “previous behaviour”
 
 The old controller never used Pi BLE. While RS485 is plugged, `0x0100` is
 still JK’s combined % even if BLE is dead. That *is* previous behaviour, but
-it cannot drive the 260/280 tape:
+it cannot drive the 241/280 tape:
 
 - `0x0100 ≈ (remain_A + remain_B) / (196 + 280)`. You cannot split that back
   into per-bank `remain_est`.

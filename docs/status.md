@@ -17,8 +17,9 @@ Snapshot after the SoC-estimator + full-charge-control work. Code on `main`
 
 JK app (both banks): OVP **3.65 V**, OVPR **3.55 V**, SOC-100% **3.59 V**,
 start balance **3.50 V** / 20 mV / 2 A, UVP **2.58 V**, SOC-0% **2.60 V**.
-Bank A live `nominal_ah` ~196 Ah (SoH 71 % of 275). Real usable ~250–260 Ah.
-Estimator tape: **A 260 + B 280 = 540 Ah**.
+Bank A live `nominal_ah` ~196 Ah (SoH 71 % of 275). Real usable ~241 Ah
+(30 Aug 3.59→3.05 coulomb).
+Estimator tape: **A 241 + B 280 = 521 Ah**.
 
 ## Cables
 
@@ -30,7 +31,7 @@ Estimator tape: **A 260 + B 280 = 540 Ah**.
 
 ## What is implemented
 
-- Pack SoC from `GET /soc` (260/280 tape). **Never** steer from `0x0100`.
+- Pack SoC from `GET /soc` (241/280 tape). **Never** steer from `0x0100`.
 - Estimator modes: `track` / `coast_jk` / `held` / `coast_inverters` /
   `full_anchor` (3.565 V) / `empty_anchor` (3.05 V). See [`soc-control.md`](soc-control.md).
 - BMS abort: `I = 0` if charge MOSFET off or `cell_max ≥ 3.55 V` (3.62 V in
@@ -51,7 +52,7 @@ Estimator tape: **A 260 + B 280 = 540 Ah**.
 - `powmr_compat` backup `/soc` (designed in [`soc-control.md`](soc-control.md)).
 - Unplug RS485 / PowMr voltage deadman.
 - Capacity-learn discharge to ~2.6 V; rewriting `usable_ah`.
-- `daily_target` still uses old Wh/% (~476 Ah tape). `target_soc` % is of 540 Ah.
+- `daily_target` still uses old Wh/% (~476 Ah tape). `target_soc` % is of 521 Ah.
 - BMS writes over BLE. Cell-health job (untracked draft).
 
 ## Live operator state (this afternoon)

@@ -24,7 +24,7 @@ from soc_estimator import (
 def _cfg() -> EstimatorConfig:
     return EstimatorConfig(
         interval_s=10,
-        usable_ah={"a": 260.0, "b": 280.0},
+        usable_ah={"a": 241.0, "b": 280.0},
         full_cell_v=3.565,
         empty_cell_v=3.05,
         ble_stale_s=25.0,
@@ -132,7 +132,7 @@ class TestStep(unittest.TestCase):
     def test_stuck_remain_coasts_on_jk_current(self):
         cfg = _cfg()
         s0 = {
-            "a": BankState(remain_est=259.0, last_remain_jk=193.8, initialized=True, mode="track"),
+            "a": BankState(remain_est=239.0, last_remain_jk=193.8, initialized=True, mode="track"),
             "b": BankState(remain_est=280.0, last_remain_jk=280.0, initialized=True, mode="track"),
         }
         samples = {
@@ -146,7 +146,7 @@ class TestStep(unittest.TestCase):
             st = r.states
         r = step(st, samples, None, cfg=cfg, dt_s=10.0)
         self.assertEqual(r.modes["a"], "coast_jk")
-        self.assertAlmostEqual(r.states["a"].remain_est, 259.0 + 25.0 * 40.0 / 3600.0, places=3)
+        self.assertAlmostEqual(r.states["a"].remain_est, 239.0 + 25.0 * 40.0 / 3600.0, places=3)
         self.assertEqual(r.modes["b"], "track")  # rest-sized I, remain still
 
     def test_one_tick_remain_lag_stays_track(self):
@@ -208,7 +208,7 @@ class TestStep(unittest.TestCase):
         }
         r = step(s0, samples, None, cfg=cfg, dt_s=10.0)
         self.assertEqual(r.modes["a"], "full_anchor")
-        self.assertAlmostEqual(r.states["a"].remain_est, 260.0)
+        self.assertAlmostEqual(r.states["a"].remain_est, 241.0)
         self.assertAlmostEqual(r.states["a"].last_remain_jk, 195.777)
 
     def test_empty_anchor(self):
@@ -322,7 +322,7 @@ class TestStep(unittest.TestCase):
             "b": _live(140.0, 0.2, nominal=280.0),
         }
         r = step(s0, samples, None, cfg=cfg, dt_s=10.0)
-        self.assertAlmostEqual(r.soc_pack, 100.0 * (130.0 + 140.0) / (260.0 + 280.0), places=4)
+        self.assertAlmostEqual(r.soc_pack, 100.0 * (130.0 + 140.0) / (241.0 + 280.0), places=4)
 
 
 class TestSocPayload(unittest.TestCase):
