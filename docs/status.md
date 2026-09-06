@@ -32,7 +32,7 @@ Estimator tape: **A 260 + B 280 = 540 Ah**.
 
 - Pack SoC from `GET /soc` (260/280 tape). **Never** steer from `0x0100`.
 - Estimator modes: `track` / `coast_jk` / `held` / `coast_inverters` /
-  `full_anchor` (3.59 V) / `empty_anchor` (3.05 V). See [`soc-control.md`](soc-control.md).
+  `full_anchor` (3.565 V) / `empty_anchor` (3.05 V). See [`soc-control.md`](soc-control.md).
 - BMS abort: `I = 0` if charge MOSFET off or `cell_max ≥ 3.55 V` (3.62 V in
   SOAK / CALIBRATE). Pack abort 56.8 V / 57.9 V. Latch if BLE then drops.
 - Full-charge nights: **CC → SOAK → CALIBRATE**. IR-free cell table on CC/SOAK;

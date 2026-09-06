@@ -48,7 +48,7 @@ MEASUREMENT = "soc_estimate"
 class EstimatorConfig:
     interval_s: int = 10
     usable_ah: Dict[str, float] = field(default_factory=lambda: {"a": 260.0, "b": 280.0})
-    full_cell_v: float = 3.59
+    full_cell_v: float = 3.565
     empty_cell_v: float = 3.05
     ble_stale_s: float = 25.0
     powmr_stale_s: float = 15.0
