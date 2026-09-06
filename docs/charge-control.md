@@ -61,7 +61,7 @@ Compared to the old BULK + clocked SYNC 30 A, not to the failed millivolt servo.
   Leave CC when pack ≥ 55.2 V or **IR-free** `max(V − I·R)` over all 32
   cells ≥ 3.45 V. Loaded abort remains 3.55 V (CC / NORMAL only).
 - **SOAK:** pack-V table min **loaded** hottest-cell table (same amp
-  steps). Last bin **3 A**. Do not zero at 3.59 V. Abort **3.62 V** /
+  steps). Last bin **2 A**. Do not zero at 3.59 V. Abort **3.62 V** /
   pack **57.9 V**. Stay until ~06:40.
 - **CALIBRATE:** flat **10 A** to 3.59 V. Same 3.62 V / 57.9 V abort. No
   IR-free 7 A cap.
@@ -70,7 +70,7 @@ Compared to the old BULK + clocked SYNC 30 A, not to the failed millivolt servo.
 CC   120 A until pack-V 55.2 or IR-free cell_max ≥ 3.45 V
      loaded 3.45 V does nothing; loaded 3.55 V → 0 A
 
-SOAK table on loaded hottest cell (tail 3 A); stay until ~06:40
+SOAK table on loaded hottest cell (tail 2 A); stay until ~06:40
      abort 3.62 V / pack 57.9 V → CALIBRATE
 
 CALIBRATE 10 A to 3.59 V; abort 3.62 V / pack 57.9 V

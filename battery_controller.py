@@ -63,7 +63,7 @@ CELL_MAX_ABORT_V:     float = 3.55     # JK OVPR; I = 0 at or above this (not CA
 # (B05/B08/B12/B14 rotate; A10/A15/A03 after the A07/A08 busbar snug),
 # not the knee.
 # SOAK is the pack-V table min loaded-hottest-cell table until ~06:40.
-# Last bin 3 A. Do not zero at 3.59 V — 3 A holds the balancer window.
+# Last bin 2 A. Do not zero at 3.59 V — 2 A holds the balancer window.
 # Abort 3.62 V / pack 57.9 V.
 # CALIBRATE is a flat 10 A to CELL_CALIBRATE_V. Same 3.62 V abort.
 
@@ -93,7 +93,7 @@ BLE_DVDT_HORIZON_S:        float = 10.0  # unused by I_cmd; kept for log/compat
 PACK_VOLT_LIMITS: list[tuple[float, float]] = [
     (55.2, 120), (55.6, 80), (55.8, 60), (56.0, 40),
     (56.3, 30), (56.5, 24), (56.6, 18), (56.7, 14),
-    (56.8, 10), (56.9, 7),
+    (56.8, 10), (56.9, 7), (57.5, 3),
 ]
 # Same I steps as PACK_VOLT_LIMITS, bounds in V/cell (pack / 16).
 # CC uses IR-free cell_max. SOAK uses loaded hottest cell.
@@ -633,7 +633,7 @@ def pack_volt_current_cap(battery_voltage: float) -> float:
     for volt_threshold, limit in PACK_VOLT_LIMITS:
         if battery_voltage < volt_threshold:
             return float(limit)
-    return 3.0
+    return 2.0
 
 
 def cell_current_cap(
@@ -648,7 +648,7 @@ def cell_current_cap(
     for bound, cap in CELL_CURRENT_LIMITS:
         if cell_v < bound:
             return min(float(cap), i_cc)
-    return min(3.0, i_cc)
+    return min(2.0, i_cc)
 
 
 def soc_current_cap(soc_pct: float, i_cc: float) -> float:

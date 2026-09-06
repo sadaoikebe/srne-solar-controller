@@ -541,6 +541,16 @@ class TestAdjustBatteryChargeBmsAbort(unittest.TestCase):
         )
         self.assertEqual(i, 3.0)
 
+    def test_soak_2a_at_loaded_3595(self):
+        i = self._charging(
+            charge_mode=ChargeMode.SOAK,
+            daily_charge_current=0.0,
+            battery_voltage=57.6,
+            cell_max=3.596,
+            battery_soc=99.0,
+        )
+        self.assertEqual(i, 2.0)
+
     def test_soak_aborts_at_362(self):
         i = self._charging(
             charge_mode=ChargeMode.SOAK,
