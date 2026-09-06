@@ -56,7 +56,8 @@ Compared to the old BULK + clocked SYNC 30 A, not to the failed millivolt servo.
 - **CC:** 120 A, pack-V table still applies, **no SoC taper**. Old BULK cut
   from 60 % SoC while cells were still on the plateau. Do **not** end CC on
   loaded `cell_max ≥ 3.45 V` — that is IR on the high-R cells (B05 / B08 /
-  B12 / B14 rotate as hottest; A07 / A08 the same class), not the knee.
+  B12 / B14 rotate as hottest; A10 / A15 / A03 after the A07 / A08 busbar
+  snug), not the knee.
   Leave CC when pack ≥ 55.2 V or **IR-free** `max(V − I·R)` over all 32
   cells ≥ 3.45 V. Loaded abort remains 3.55 V (CC / NORMAL only).
 - **SOAK:** pack-V table min **loaded** hottest-cell table (same amp

@@ -60,7 +60,8 @@ CELL_MAX_ABORT_V:     float = 3.55     # JK OVPR; I = 0 at or above this (not CA
 # Triggered by daily_target.py setting "full_charge: true" in targets.json.
 # CC fills at up to CC_MAX_CURRENT until pack 55.2 V or IR-free cell_max
 # hits CELL_KNEE_V. Loaded hottest-cell 3.45 V is IR on the high-R cells
-# (B05/B08/B12/B14 rotate; A07/A08 the same class), not the knee.
+# (B05/B08/B12/B14 rotate; A10/A15/A03 after the A07/A08 busbar snug),
+# not the knee.
 # SOAK is the pack-V table min loaded-hottest-cell table until ~06:40.
 # Last bin 3 A. Do not zero at 3.59 V — 3 A holds the balancer window.
 # Abort 3.62 V / pack 57.9 V.
@@ -99,16 +100,18 @@ PACK_VOLT_LIMITS: list[tuple[float, float]] = [
 CELL_CURRENT_LIMITS: list[tuple[float, float]] = [
     (v / 16.0, lim) for v, lim in PACK_VOLT_LIMITS
 ]
-# 30 s ΔV/ΔI medians from cell-health (mΩ). Open-loop IR subtract, not a
-# control gain — do not retune so one night's I(t) looks pretty.
+# 30 s ΔV/ΔI medians (mΩ). Open-loop IR subtract, not a control gain.
+# Retuned 2026-09-06 after A07/A08 busbar snug (step at 30 Aug 04:30–07:00 JST).
+# Source: |ΔI|≥5 A pairs, 30 Aug 07:00–6 Sep. A07 2.60→0.71, A08 2.89→0.93,
+# A09 1.33→0.71 (same bus). B unchanged class (not torqued).
 CELL_R_MOHM: dict[str, tuple[float, ...]] = {
     "a": (
-        0.41, 0.52, 2.12, 1.30, 0.96, 1.54, 2.60, 2.89,
-        1.33, 2.05, 1.52, 0.59, 0.50, 1.54, 2.13, 0.60,
+        0.43, 0.52, 1.84, 1.30, 0.96, 1.69, 0.71, 0.93,
+        0.71, 2.01, 1.54, 0.59, 0.49, 1.47, 2.00, 0.65,
     ),
     "b": (
-        0.42, 0.66, 0.72, 1.12, 1.63, 0.51, 0.52, 1.74,
-        0.50, 0.43, 0.56, 1.68, 0.67, 1.73, 0.50, 0.49,
+        0.39, 0.61, 0.68, 1.05, 1.46, 0.49, 0.51, 1.64,
+        0.48, 0.41, 0.55, 1.58, 0.65, 1.63, 0.48, 0.47,
     ),
 }
 SOC_LIMITS: list[tuple[float, float]] = [
