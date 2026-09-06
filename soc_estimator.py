@@ -8,8 +8,9 @@ Modes per bank
 --------------
   track            BLE up, JK remain_ah moving → remain_est += Δremain_jk
   coast_jk         BLE up, remain stuck → remain_est += I_jk × Δt
-  coast_inverters  both banks BLE down, latch has current → split I_pack
-  held             this bank BLE down, the other is live → freeze remain_est
+  coast_inverters  this bank BLE down, latch has current
+                   I_pack split by share if all dead, else I_pack − I_alive
+  held             this bank BLE down and no latch current
   full_anchor      cell_max ≥ full_cell_v → remain_est = usable_ah
   empty_anchor     cell_min ≤ empty_cell_v → remain_est = 0
 
@@ -339,7 +340,8 @@ def step(
     modes: Dict[str, str] = {}
     measured = False
     inv_ok = inverter_fresh(inverter, cfg)
-    all_dead = len(dead) == len(banks)
+    i_pack = float(inverter.pack_current_a) if inv_ok and inverter is not None else None
+    i_alive = sum(float(s.current) for s in live.values() if s.current is not None)
 
     for b in banks:
         usable = float(cfg.usable_ah[b])
@@ -355,9 +357,11 @@ def step(
             new_states[b] = st
             modes[b] = st.mode
             measured = True
-        elif all_dead and inv_ok and dt_s > 0:
-            i_pack = float(inverter.pack_current_a)  # type: ignore[union-attr]
-            d_ah = shares.get(b, 1.0 / len(banks)) * i_pack * dt_s / 3600.0
+        elif inv_ok and i_pack is not None and dt_s > 0:
+            if live:
+                d_ah = ((i_pack - i_alive) / len(dead)) * dt_s / 3600.0
+            else:
+                d_ah = shares.get(b, 1.0 / len(banks)) * i_pack * dt_s / 3600.0
             remain = clamp(prev.remain_est + d_ah, 0.0, usable)
             last_jk = prev.last_remain_jk
             # Advance the JK pointer by the same Ah so BLE-back Δremain_jk
@@ -380,7 +384,7 @@ def step(
     remain_sum = sum(new_states[b].remain_est for b in banks)
     usable_sum = sum(float(cfg.usable_ah[b]) for b in banks)
     soc_pack = 100.0 * remain_sum / usable_sum if usable_sum > 0 else None
-    pack_i = inverter.pack_current_a if inv_ok else None
+    pack_i = i_pack
     return TickResult(
         states=new_states,
         modes=modes,

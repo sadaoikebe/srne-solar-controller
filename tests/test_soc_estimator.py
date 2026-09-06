@@ -217,7 +217,7 @@ class TestStep(unittest.TestCase):
         self.assertEqual(r.modes["a"], "empty_anchor")
         self.assertEqual(r.states["a"].remain_est, 0.0)
 
-    def test_one_bank_ble_down_holds(self):
+    def test_one_bank_ble_down_coasts(self):
         cfg = _cfg()
         s0 = {
             "a": BankState(remain_est=100.0, last_remain_jk=40.0, initialized=True, mode="track"),
@@ -226,9 +226,11 @@ class TestStep(unittest.TestCase):
         samples = {"a": _dead(), "b": _live(140.1, 10.0, nominal=280.0)}
         inv = InverterSnapshot(pack_current_a=-30.0, powmr_age_s=1.0, growatt_age_s=5.0)
         r = step(s0, samples, inv, cfg=cfg, dt_s=10.0)
-        self.assertEqual(r.modes["a"], "held")
-        self.assertAlmostEqual(r.states["a"].remain_est, 100.0)
-        self.assertTrue(r.write)  # B still measured
+        self.assertEqual(r.modes["a"], "coast_inverters")
+        d_a = (-30.0 - 10.0) * 10.0 / 3600.0
+        self.assertAlmostEqual(r.states["a"].remain_est, 100.0 + d_a, places=4)
+        self.assertAlmostEqual(r.states["a"].last_remain_jk, 40.0 + d_a, places=4)
+        self.assertTrue(r.write)
 
     def test_both_ble_down_coasts_inverters(self):
         cfg = _cfg()

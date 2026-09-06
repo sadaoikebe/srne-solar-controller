@@ -66,8 +66,8 @@ Per bank, usable Ah is config (`soc_estimator.yaml`: A 260, B 280), not JK
 |---|---|---|
 | **track** | BLE fresh, `remain_ah` moving with current | `remain_est += Δremain_jk` (offset held) |
 | **coast_jk** | BLE fresh, remain stuck **> 35 s** with real I (99 % / 0 % freeze) | `remain_est += I_jk × Δt` (first tick credits the wait) |
-| **coast_inverters** | **both** banks BLE down, latch has PowMr+Growatt I | split `I_pack` by last \|I\| share; also advance `last_remain_jk` so BLE-back follows the tape, not tape+coast |
-| **held** | this bank BLE down, the other live | freeze that bank’s `remain_est` |
+| **coast_inverters** | this bank BLE down, latch has I | all dead: split `I_pack` by last \|I\| share. else: `I_pack − I_alive`. Advance `last_remain_jk` so BLE-back follows the tape |
+| **held** | this bank BLE down and no latch I | freeze that bank’s `remain_est` |
 | **full_anchor** | `cell_max ≥ 3.59 V` | `remain_est = usable` |
 | **empty_anchor** | `cell_min ≤ 3.05 V` | `remain_est = 0` |
 
@@ -91,9 +91,11 @@ stateDiagram-v2
     coast_jk --> full_anchor: cell_max ≥ 3.59 V
     track --> empty_anchor: cell_min ≤ 3.05 V
     coast_jk --> empty_anchor: cell_min ≤ 3.05 V
-    track --> held: this BLE down, other live
-    coast_jk --> held: this BLE down, other live
-    held --> coast_inverters: both BLE down, inverter I
+    track --> coast_inverters: this BLE down, latch has I
+    coast_jk --> coast_inverters: this BLE down, latch has I
+    track --> held: this BLE down, no latch I
+    coast_jk --> held: this BLE down, no latch I
+    held --> coast_inverters: latch I appears
     held --> track: BLE back, this bank remain_ah
     coast_inverters --> track: BLE back, this bank remain_ah
 ```
@@ -129,8 +131,8 @@ Removed from the controller (on purpose):
 - 520 Ah interpolator clamped to `0x0100 ± 0.5 %`
 - SoC jump filter (18↔24 when PowMr dropped a bank)
 
-Those belonged to sanitizing `0x0100`. One-bank BLE dropout is `held` inside
-the estimator.
+Those belonged to sanitizing `0x0100`. One-bank BLE dropout is
+`coast_inverters` (`I_pack − I_alive`) when the latch has current.
 
 **Controller fallback** (estimator HTTP down or `age_s > 30 s`):
 
